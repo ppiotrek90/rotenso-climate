@@ -40,6 +40,7 @@ namespace esphome
     climate::ClimateTraits RotensoClimate::traits()
     {
       auto traits = climate::ClimateTraits();
+      traits.add_feature_flags(climate::CLIMATE_SUPPORTS_CURRENT_TEMPERATURE);
       traits.set_supported_modes({
           climate::CLIMATE_MODE_OFF,
           climate::CLIMATE_MODE_HEAT,
@@ -130,7 +131,7 @@ namespace esphome
       ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
 
       // if buffer size is 61 and command type is Get 0x4 then we assume it's heartbeat response
-      //  (there is also buffer size 51 and command type 0x9 which is to figure out)
+      // (there is also buffer size 51 and command type 0x9 which is to figure out)
 
       if (buffer.size() == 61 && buffer[3] == 0x04)
       {
@@ -140,7 +141,7 @@ namespace esphome
           this->mode = parsed.mode;
           this->fan_mode = parsed.fan_mode;
           this->target_temperature = parsed.temperature;
-          // fixme: this->current_temperature = parsed.temperature;
+          this->current_temperature = parsed.current_temperature;
 
           this->preset = parsed.preset;
           ESP_LOGI(TAG, "Updated climate state from heartbeat");

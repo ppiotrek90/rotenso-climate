@@ -19,7 +19,7 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     uint8_t state_nibble = (state_mode_byte & 0xF0) >> 4;
     uint8_t mode_nibble = (state_mode_byte & 0x0F);
 
-    //parse climate mode
+    // Parse climate mode
     if (state_nibble == 0x2) {
         result.mode = climate::CLIMATE_MODE_OFF;
       } else {
@@ -33,7 +33,7 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
         }
       }
 
-      //parse climate preset
+      // Parse climate preset
       switch (state_nibble) {
         case 0x2: result.preset = esphome::climate::CLIMATE_PRESET_NONE; break; 
         case 0x3: result.preset = esphome::climate::CLIMATE_PRESET_NONE; break;
@@ -43,7 +43,7 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
         default: result.preset = esphome::climate::CLIMATE_PRESET_NONE; break;
       }
 
-    //parse fan speed
+    // Parse fan speed
     uint8_t fan_raw = (buffer[8] >> 4) & 0x0F;
     switch (fan_raw) {
       case 0x8: result.fan_mode = climate::CLIMATE_FAN_AUTO; break; // Fan Auto
@@ -55,7 +55,7 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
       default: result.fan_mode = climate::CLIMATE_FAN_AUTO; break;
     }
 
-    //parse temperature
+    // Parse temperature
     uint8_t fan_temp_byte = buffer[8];
     uint8_t temp_decimal_byte = buffer[9];
 
@@ -69,6 +69,11 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     }
 
     result.temperature = temperature;
+
+    // Parse current (room) temperature - bytes 17-18, 16-bit big-endian,
+    // same encoding as the TCL-based protocol this device shares (Fahrenheit-derived).
+    uint16_t curr_temp_raw = (static_cast<uint16_t>(buffer[17]) << 8) | buffer[18];
+    result.current_temperature = (curr_temp_raw / 374.0f - 32.0f) / 1.8f;
 
     result.valid = true;
     return result;

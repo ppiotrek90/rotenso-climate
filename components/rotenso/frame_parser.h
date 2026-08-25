@@ -11,6 +11,7 @@ struct ParsedClimateState {
     esphome::climate::ClimateMode mode;
     esphome::climate::ClimateFanMode fan_mode;
     float temperature;
+    float current_temperature;
     esphome::climate::ClimatePreset preset = esphome::climate::CLIMATE_PRESET_NONE;
 };
       
