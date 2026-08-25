@@ -46,12 +46,15 @@ namespace esphome
           climate::CLIMATE_MODE_HEAT,
           climate::CLIMATE_MODE_COOL,
           climate::CLIMATE_MODE_FAN_ONLY,
+          climate::CLIMATE_MODE_DRY,
+          climate::CLIMATE_MODE_AUTO,
       });
 
       traits.set_supported_fan_modes({
           climate::CLIMATE_FAN_LOW,
           climate::CLIMATE_FAN_MEDIUM,
           climate::CLIMATE_FAN_HIGH,
+          climate::CLIMATE_FAN_FOCUS,
           climate::CLIMATE_FAN_AUTO,
           climate::CLIMATE_FAN_QUIET,
       });
