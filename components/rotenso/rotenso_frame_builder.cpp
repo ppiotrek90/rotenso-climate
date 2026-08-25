@@ -146,9 +146,6 @@ namespace esphome
       case climate::CLIMATE_FAN_HIGH: // Fan 5
         frame_[10] = 0x05;
         break;
-      case climate::CLIMATE_FAN_FOCUS: // Fan 7
-        frame_[10] = 0x07;
-        break;
       case climate::CLIMATE_FAN_QUIET:
         frame_[8] |= 0x80;
         frame_[10] = 0x01;

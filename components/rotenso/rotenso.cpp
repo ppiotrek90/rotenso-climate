@@ -54,7 +54,6 @@ namespace esphome
           climate::CLIMATE_FAN_LOW,
           climate::CLIMATE_FAN_MEDIUM,
           climate::CLIMATE_FAN_HIGH,
-          climate::CLIMATE_FAN_FOCUS,
           climate::CLIMATE_FAN_AUTO,
           climate::CLIMATE_FAN_QUIET,
       });
