@@ -19,6 +19,10 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   // quiet fan) on the write side. Safe to call from a template button.
   void send_test_frame(uint8_t byte_index, uint8_t value);
 
+  // TEMPORARY test helper: sends byte[8]|=0x80 AND byte[10]|=0x01 together
+  // in one frame, per the quiet-fan encoding found in a related TCL project.
+  void send_quiet_test();
+
  protected:
   climate::ClimateTraits traits() override;
   void control(const climate::ClimateCall &call) override;

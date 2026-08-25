@@ -51,6 +51,14 @@ namespace esphome
       }
     }
 
+    void RotensoFrameBuilder::or_raw_byte(size_t index, uint8_t bits)
+    {
+      if (index < FRAME_LENGTH - 1)
+      {
+        frame_[index] |= bits;
+      }
+    }
+
     uint8_t RotensoFrameBuilder::encode_power(bool power)
     {
       return power ? 0x64 : 0x60;

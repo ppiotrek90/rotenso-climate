@@ -114,6 +114,27 @@ namespace esphome
       this->write_array(frame.data(), frame.size());
     }
 
+    void RotensoClimate::send_quiet_test()
+    {
+      climate::ClimateCall call = this->make_call();
+      RotensoFrameBuilder builder;
+      builder.from_climate_state(this, call);
+      builder.or_raw_byte(8, 0x80);
+      builder.or_raw_byte(10, 0x01);
+      auto frame = builder.build_frame();
+
+      std::string log_line;
+      char byte_str[6];
+      for (size_t i = 0; i < frame.size(); i++)
+      {
+        snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+        log_line += byte_str;
+      }
+      ESP_LOGW(TAG, "QUIET TEST (byte[8]|=0x80, byte[10]|=0x01): %s", log_line.c_str());
+
+      this->write_array(frame.data(), frame.size());
+    }
+
     void RotensoClimate::send_heartbeat()
     {
       ESP_LOGD(TAG, "Sending UART heartbeat");

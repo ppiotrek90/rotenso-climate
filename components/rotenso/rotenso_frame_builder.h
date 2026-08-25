@@ -18,6 +18,11 @@ class RotensoFrameBuilder {
   // has filled in the normal frame, before build_frame() computes checksum.
   void set_raw_byte(size_t index, uint8_t value);
 
+  // Same as set_raw_byte, but ORs bits into whatever from_climate_state()
+  // already put there, instead of replacing it. Needed when a feature
+  // requires two bits set together in one frame (e.g. quiet fan).
+  void or_raw_byte(size_t index, uint8_t bits);
+
   std::array<uint8_t, FRAME_LENGTH> build_frame();
 
  private:
