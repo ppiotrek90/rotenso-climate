@@ -1,7 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import binary_sensor
-from esphome.const import DEVICE_CLASS_PROBLEM
+from esphome.const import DEVICE_CLASS_PROBLEM, ENTITY_CATEGORY_DIAGNOSTIC
 
 from . import climate as rotenso_climate
 
@@ -13,6 +13,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(rotenso_climate.RotensoClimate),
         cv.Optional(CONF_ERROR): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_PROBLEM,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
     }
 )

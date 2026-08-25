@@ -6,6 +6,7 @@ from esphome.const import (
     DEVICE_CLASS_TEMPERATURE,
     STATE_CLASS_MEASUREMENT,
     ICON_THERMOMETER,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 
 from . import climate as rotenso_climate
@@ -22,6 +23,7 @@ CONFIG_SCHEMA = cv.Schema(
             state_class=STATE_CLASS_MEASUREMENT,
             icon=ICON_THERMOMETER,
             accuracy_decimals=1,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
     }
 )
