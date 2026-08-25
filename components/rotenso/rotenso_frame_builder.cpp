@@ -39,6 +39,14 @@ namespace esphome
       encode_temperature(target_temp);
     }
 
+    void RotensoFrameBuilder::set_raw_byte(size_t index, uint8_t value)
+    {
+      if (index < FRAME_LENGTH - 1)  // never let a test poke overwrite the checksum byte
+      {
+        frame_[index] = value;
+      }
+    }
+
     uint8_t RotensoFrameBuilder::encode_power(bool power)
     {
       return power ? 0x64 : 0x60;

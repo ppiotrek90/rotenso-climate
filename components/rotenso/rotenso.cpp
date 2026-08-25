@@ -92,6 +92,28 @@ namespace esphome
       this->write_array(frame.data(), frame.size());
     }
 
+    void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value)
+    {
+      // Same as control(), but starting from an empty call (= "keep everything
+      // as it currently is"), so only byte_index changes vs. a normal frame.
+      climate::ClimateCall call = this->make_call();
+      RotensoFrameBuilder builder;
+      builder.from_climate_state(this, call);
+      builder.set_raw_byte(byte_index, value);
+      auto frame = builder.build_frame();
+
+      std::string log_line;
+      char byte_str[6];
+      for (size_t i = 0; i < frame.size(); i++)
+      {
+        snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+        log_line += byte_str;
+      }
+      ESP_LOGW(TAG, "TEST FRAME (byte[%d]=0x%02X): %s", byte_index, value, log_line.c_str());
+
+      this->write_array(frame.data(), frame.size());
+    }
+
     void RotensoClimate::send_heartbeat()
     {
       ESP_LOGD(TAG, "Sending UART heartbeat");

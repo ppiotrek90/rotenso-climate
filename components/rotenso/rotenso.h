@@ -13,6 +13,12 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   void setup() override;
   void loop() override;
 
+  // TEMPORARY test helper: builds a normal SET frame from the current climate
+  // state, overrides one byte with a chosen value, and sends it. Used to
+  // experimentally find which byte controls a given feature (e.g. sleep,
+  // quiet fan) on the write side. Safe to call from a template button.
+  void send_test_frame(uint8_t byte_index, uint8_t value);
+
  protected:
   climate::ClimateTraits traits() override;
   void control(const climate::ClimateCall &call) override;
