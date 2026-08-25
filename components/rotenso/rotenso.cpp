@@ -53,12 +53,14 @@ namespace esphome
           climate::CLIMATE_FAN_MEDIUM,
           climate::CLIMATE_FAN_HIGH,
           climate::CLIMATE_FAN_AUTO,
+          climate::CLIMATE_FAN_QUIET,
       });
 
       traits.set_supported_presets({
           climate::CLIMATE_PRESET_NONE,
           climate::CLIMATE_PRESET_ECO,
           climate::CLIMATE_PRESET_BOOST,
+          climate::CLIMATE_PRESET_SLEEP,
       });
 
       traits.set_visual_min_temperature(16);
@@ -131,7 +133,7 @@ namespace esphome
       ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
 
       // if buffer size is 61 and command type is Get 0x4 then we assume it's heartbeat response
-      // (there is also buffer size 51 and command type 0x9 which is to figure out)
+      //  (there is also buffer size 51 and command type 0x9 which is to figure out)
 
       if (buffer.size() == 61 && buffer[3] == 0x04)
       {

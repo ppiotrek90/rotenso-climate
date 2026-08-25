@@ -72,6 +72,13 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
       default: result.fan_mode = climate::CLIMATE_FAN_AUTO; break;
     }
 
+    // Quiet fan overrides whatever speed nibble says - byte 33, bit 0x80.
+    // Confirmed against a real remote toggle.
+    bool quiet_fan = (buffer[33] & 0x80) != 0;
+    if (quiet_fan) {
+      result.fan_mode = climate::CLIMATE_FAN_QUIET;
+    }
+
     // Parse temperature
     uint8_t fan_temp_byte = buffer[8];
     uint8_t temp_decimal_byte = buffer[9];
@@ -92,12 +99,12 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     uint16_t curr_temp_raw = (static_cast<uint16_t>(buffer[17]) << 8) | buffer[18];
     result.current_temperature = (curr_temp_raw / 374.0f - 32.0f) / 1.8f;
 
-    // Tentative: sleep preset (byte 19, bit 0x01) and quiet fan (byte 33, bit 0x80).
-    // Found in a related TCL-protocol project, not yet confirmed on this device.
-    // Logged only for now - flip on once verified against a real remote toggle.
-    bool sleep_bit = (buffer[19] & 0x01) != 0;
-    bool quiet_bit = (buffer[33] & 0x80) != 0;
-    ESP_LOGD(TAG, "Tentative flags: sleep(byte19&0x01)=%d quiet(byte33&0x80)=%d", sleep_bit, quiet_bit);
+    // Sleep preset - byte 19, bit 0x01. Confirmed against a real remote toggle.
+    // Only applied when no other preset (ECO/BOOST) is already active from state_nibble.
+    bool sleep_on = (buffer[19] & 0x01) != 0;
+    if (result.preset == climate::CLIMATE_PRESET_NONE && sleep_on) {
+      result.preset = climate::CLIMATE_PRESET_SLEEP;
+    }
 
     result.valid = true;
     return result;
