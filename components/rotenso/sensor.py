@@ -12,7 +12,6 @@ from . import climate as rotenso_climate
 
 CONF_ROTENSO_ID = "rotenso_id"
 CONF_COIL_TEMPERATURE = "coil_temperature"
-CONF_ERROR_CODE = "error_code"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -24,10 +23,6 @@ CONFIG_SCHEMA = cv.Schema(
             icon=ICON_THERMOMETER,
             accuracy_decimals=1,
         ),
-        cv.Optional(CONF_ERROR_CODE): sensor.sensor_schema(
-            icon="mdi:alert-circle-outline",
-            accuracy_decimals=0,
-        ),
     }
 )
 
@@ -38,7 +33,3 @@ async def to_code(config):
     if CONF_COIL_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_COIL_TEMPERATURE])
         cg.add(parent.set_coil_temperature_sensor(sens))
-
-    if CONF_ERROR_CODE in config:
-        sens = await sensor.new_sensor(config[CONF_ERROR_CODE])
-        cg.add(parent.set_error_code_sensor(sens))

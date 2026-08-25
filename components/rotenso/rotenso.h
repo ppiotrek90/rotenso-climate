@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/uart/uart.h"
 
 namespace esphome {
@@ -25,7 +26,7 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
 
   // Diagnostic sensors, set from YAML via the rotenso sensor.py platform.
   void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
-  void set_error_code_sensor(sensor::Sensor *s) { this->error_code_sensor_ = s; }
+  void set_error_binary_sensor(binary_sensor::BinarySensor *s) { this->error_binary_sensor_ = s; }
 
  protected:
   climate::ClimateTraits traits() override;
@@ -39,7 +40,7 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
   sensor::Sensor *coil_temperature_sensor_{nullptr};
-  sensor::Sensor *error_code_sensor_{nullptr};
+  binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
 };
 
 }  // namespace rotenso
