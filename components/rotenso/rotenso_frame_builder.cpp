@@ -32,7 +32,8 @@ namespace esphome
       climate::ClimatePreset preset = climate->preset.has_value() ? *climate->preset : climate::CLIMATE_PRESET_NONE;
       frame_[8] = encode_mode_preset(climate->mode, preset);
 
-      climate::ClimateFanMode fan_mode = call.get_fan_mode().value_or(climate::CLIMATE_FAN_AUTO);
+      climate::ClimateFanMode fan_mode = call.get_fan_mode().value_or(
+          climate->fan_mode.has_value() ? *climate->fan_mode : climate::CLIMATE_FAN_AUTO);
       set_fan_speed(fan_mode);
 
       encode_temperature(target_temp);
