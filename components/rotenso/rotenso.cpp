@@ -201,6 +201,10 @@ namespace esphome
           {
             this->error_binary_sensor_->publish_state(parsed.error_code != 0);
           }
+          if (this->anti_mildew_binary_sensor_ != nullptr)
+          {
+            this->anti_mildew_binary_sensor_->publish_state(parsed.anti_mildew);
+          }
 
           this->publish_state();
         }
