@@ -99,6 +99,13 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     uint16_t curr_temp_raw = (static_cast<uint16_t>(buffer[17]) << 8) | buffer[18];
     result.current_temperature = (curr_temp_raw / 374.0f - 32.0f) / 1.8f;
 
+    // Diagnostic-only: coil temp from a single byte, same formula shape as the
+    // room-temp one but with the low byte treated as 0.
+    result.coil_temperature = ((static_cast<uint16_t>(buffer[30]) << 8) / 374.0f - 32.0f) / 1.8f;
+
+    // Diagnostic-only: error code, raw byte, meaning of non-zero values unverified.
+    result.error_code = buffer[16];
+
     // Sleep preset - byte 19, bit 0x01. Confirmed against a real remote toggle.
     // Only applied when no other preset (ECO/BOOST) is already active from state_nibble.
     bool sleep_on = (buffer[19] & 0x01) != 0;

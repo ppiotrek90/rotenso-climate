@@ -23,6 +23,10 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   // in one frame, per the quiet-fan encoding found in a related TCL project.
   void send_quiet_test();
 
+  // Diagnostic sensors, set from YAML via the rotenso sensor.py platform.
+  void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
+  void set_error_code_sensor(sensor::Sensor *s) { this->error_code_sensor_ = s; }
+
  protected:
   climate::ClimateTraits traits() override;
   void control(const climate::ClimateCall &call) override;
@@ -33,6 +37,9 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
 
   uint32_t last_heartbeat_{0};
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
+
+  sensor::Sensor *coil_temperature_sensor_{nullptr};
+  sensor::Sensor *error_code_sensor_{nullptr};
 };
 
 }  // namespace rotenso

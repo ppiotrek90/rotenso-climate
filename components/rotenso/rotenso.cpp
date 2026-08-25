@@ -193,6 +193,15 @@ namespace esphome
           this->preset = parsed.preset;
           ESP_LOGI(TAG, "Updated climate state from heartbeat");
 
+          if (this->coil_temperature_sensor_ != nullptr)
+          {
+            this->coil_temperature_sensor_->publish_state(parsed.coil_temperature);
+          }
+          if (this->error_code_sensor_ != nullptr)
+          {
+            this->error_code_sensor_->publish_state(parsed.error_code);
+          }
+
           this->publish_state();
         }
       }
