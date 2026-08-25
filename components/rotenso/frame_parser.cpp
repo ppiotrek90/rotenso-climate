@@ -6,11 +6,28 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.parser";
 
+// XOR checksum of all bytes except the last one, which is the checksum itself.
+// Same algorithm as the TCL-based protocol this device shares.
+static uint8_t xor_checksum(const std::vector<uint8_t> &buffer) {
+  uint8_t cs = 0;
+  for (size_t i = 0; i + 1 < buffer.size(); i++) {
+    cs ^= buffer[i];
+  }
+  return cs;
+}
+
 ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     ParsedClimateState result;
   
     if (buffer.size() != 61 || buffer[3] != 0x04) {
       ESP_LOGW(TAG, "Invalid heartbeat packet");
+      return result;
+    }
+
+    uint8_t expected_cs = xor_checksum(buffer);
+    if (expected_cs != buffer.back()) {
+      ESP_LOGW(TAG, "Checksum mismatch: expected 0x%02X, got 0x%02X - discarding frame",
+               expected_cs, buffer.back());
       return result;
     }
   
@@ -74,6 +91,13 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     // same encoding as the TCL-based protocol this device shares (Fahrenheit-derived).
     uint16_t curr_temp_raw = (static_cast<uint16_t>(buffer[17]) << 8) | buffer[18];
     result.current_temperature = (curr_temp_raw / 374.0f - 32.0f) / 1.8f;
+
+    // Tentative: sleep preset (byte 19, bit 0x01) and quiet fan (byte 33, bit 0x80).
+    // Found in a related TCL-protocol project, not yet confirmed on this device.
+    // Logged only for now - flip on once verified against a real remote toggle.
+    bool sleep_bit = (buffer[19] & 0x01) != 0;
+    bool quiet_bit = (buffer[33] & 0x80) != 0;
+    ESP_LOGD(TAG, "Tentative flags: sleep(byte19&0x01)=%d quiet(byte33&0x80)=%d", sleep_bit, quiet_bit);
 
     result.valid = true;
     return result;
