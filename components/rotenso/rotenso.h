@@ -26,6 +26,7 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
 
   // Diagnostic sensors, set from YAML via the rotenso sensor.py platform.
   void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
+  void set_room_temperature_sensor(sensor::Sensor *s) { this->room_temperature_sensor_ = s; }
   void set_error_binary_sensor(binary_sensor::BinarySensor *s) { this->error_binary_sensor_ = s; }
   void set_anti_mildew_binary_sensor(binary_sensor::BinarySensor *s) { this->anti_mildew_binary_sensor_ = s; }
 
@@ -41,6 +42,7 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
   sensor::Sensor *coil_temperature_sensor_{nullptr};
+  sensor::Sensor *room_temperature_sensor_{nullptr};
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
 };

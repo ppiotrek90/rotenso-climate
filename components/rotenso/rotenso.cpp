@@ -197,6 +197,10 @@ namespace esphome
           {
             this->coil_temperature_sensor_->publish_state(parsed.coil_temperature);
           }
+          if (this->room_temperature_sensor_ != nullptr)
+          {
+            this->room_temperature_sensor_->publish_state(parsed.current_temperature);
+          }
           if (this->error_binary_sensor_ != nullptr)
           {
             this->error_binary_sensor_->publish_state(parsed.error_code != 0);

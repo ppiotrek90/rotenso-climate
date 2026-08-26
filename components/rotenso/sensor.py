@@ -13,6 +13,7 @@ from . import climate as rotenso_climate
 
 CONF_ROTENSO_ID = "rotenso_id"
 CONF_COIL_TEMPERATURE = "coil_temperature"
+CONF_ROOM_TEMPERATURE = "room_temperature"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -25,6 +26,14 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=1,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
+        # Same value as the current temperature
+        cv.Optional(CONF_ROOM_TEMPERATURE): sensor.sensor_schema(
+            unit_of_measurement=UNIT_CELSIUS,
+            device_class=DEVICE_CLASS_TEMPERATURE,
+            state_class=STATE_CLASS_MEASUREMENT,
+            icon=ICON_THERMOMETER,
+            accuracy_decimals=1,
+        ),
     }
 )
 
@@ -35,3 +44,7 @@ async def to_code(config):
     if CONF_COIL_TEMPERATURE in config:
         sens = await sensor.new_sensor(config[CONF_COIL_TEMPERATURE])
         cg.add(parent.set_coil_temperature_sensor(sens))
+
+    if CONF_ROOM_TEMPERATURE in config:
+        sens = await sensor.new_sensor(config[CONF_ROOM_TEMPERATURE])
+        cg.add(parent.set_room_temperature_sensor(sens))
