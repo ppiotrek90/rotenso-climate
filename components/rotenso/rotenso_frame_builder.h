@@ -1,6 +1,8 @@
 #pragma once
 
 #include <array>
+#include <string>
+
 #include "esphome/components/climate/climate.h"
 
 namespace esphome {
@@ -12,15 +14,16 @@ class RotensoFrameBuilder {
 
   RotensoFrameBuilder();
 
-  void from_climate_state(const climate::Climate *climate, const climate::ClimateCall &call);
+  void from_climate_state(
+      const climate::Climate *climate,
+      const climate::ClimateCall &call);
 
-  // TEMPORARY test helper: override a single byte after from_climate_state()
-  // has filled in the normal frame, before build_frame() computes checksum.
+  // Apply vertical vane position.
+  void set_vane_position(const std::string &position);
+
+  // Temporary test helpers.
   void set_raw_byte(size_t index, uint8_t value);
 
-  // Same as set_raw_byte, but ORs bits into whatever from_climate_state()
-  // already put there, instead of replacing it. Needed when a feature
-  // requires two bits set together in one frame (e.g. quiet fan).
   void or_raw_byte(size_t index, uint8_t bits);
 
   std::array<uint8_t, FRAME_LENGTH> build_frame();
@@ -29,11 +32,22 @@ class RotensoFrameBuilder {
   std::array<uint8_t, FRAME_LENGTH> frame_;
 
   void update_checksum();
+
   uint8_t encode_power(bool power);
-  uint8_t encode_mode_preset(climate::ClimateMode mode, climate::ClimatePreset preset);
+
+  uint8_t encode_mode_preset(
+      climate::ClimateMode mode,
+      climate::ClimatePreset preset);
+
   void encode_temperature(float temp_c);
+
   void set_fan_speed(climate::ClimateFanMode fan_mode);
 
+  static uint8_t vane_position_to_byte(
+      const std::string &position);
+
+  static bool vane_position_needs_move_bit(
+      const std::string &position);
 };
 
 }  // namespace rotenso
