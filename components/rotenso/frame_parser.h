@@ -19,6 +19,8 @@ struct ParsedClimateState {
     uint8_t error_code;
     // Anti-mildew
     bool anti_mildew;
+    // Vane position
+    uint8_t vertical_vane_position_raw;
 };
       
 

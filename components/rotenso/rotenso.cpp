@@ -10,6 +10,23 @@ namespace esphome
 
     static const char *const TAG = "rotenso.climate";
 
+    // Vane position mapping - byte 32 (SET) / byte 51 (STATUS).
+    static std::string vane_position_to_string(uint8_t raw)
+    {
+      switch (raw)
+      {
+        case 0x01: return "Top";
+        case 0x02: return "Upper";
+        case 0x03: return "Mid";
+        case 0x04: return "Lower";
+        case 0x05: return "Bottom";
+        case 0x0D: return "Move Full";
+        case 0x15: return "Move Upper";
+        case 0x1D: return "Move Lower";
+        default: return "Off";
+      }
+    }
+
     void RotensoClimate::setup()
     {
       ESP_LOGI(TAG, "Rotenso climate setup complete");
@@ -65,6 +82,20 @@ namespace esphome
           climate::CLIMATE_PRESET_SLEEP,
       });
 
+      // Vane position - byte 32 in the SET frame, byte 51 in STATUS.
+      // Confirmed working against real hardware.
+      traits.set_supported_custom_swing_modes({
+          "Off",
+          "Top",
+          "Upper",
+          "Mid",
+          "Lower",
+          "Bottom",
+          "Move Full",
+          "Move Upper",
+          "Move Lower",
+      });
+
       traits.set_visual_min_temperature(16);
       traits.set_visual_max_temperature(31);
       traits.set_visual_temperature_step(0.5);
@@ -86,6 +117,11 @@ namespace esphome
       if (call.get_preset().has_value())
       {
         this->preset = *call.get_preset();
+      }
+
+      if (call.get_custom_swing_mode().has_value())
+      {
+        this->custom_swing_mode = *call.get_custom_swing_mode();
       }
 
       RotensoFrameBuilder builder;
@@ -212,6 +248,7 @@ namespace esphome
           this->current_temperature = parsed.current_temperature;
 
           this->preset = parsed.preset;
+          this->custom_swing_mode = vane_position_to_string(parsed.vertical_vane_position_raw);
           ESP_LOGI(TAG, "Updated climate state from heartbeat");
 
           if (this->coil_temperature_sensor_ != nullptr)

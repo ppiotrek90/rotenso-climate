@@ -8,6 +8,27 @@ namespace esphome
 
     static const char *const TAG = "rotenso.climate";
 
+    // Vane position - byte 32 (SET) / byte 51 (STATUS). Confirmed working
+    // against real hardware. "Move" modes additionally need byte[10] |= 0x38
+    // (confirmed: fixed positions alone don't need this, move modes do).
+    static uint8_t vane_position_to_byte(const std::string &s)
+    {
+      if (s == "Top") return 0x01;
+      if (s == "Upper") return 0x02;
+      if (s == "Mid") return 0x03;
+      if (s == "Lower") return 0x04;
+      if (s == "Bottom") return 0x05;
+      if (s == "Move Full") return 0x0D;
+      if (s == "Move Upper") return 0x15;
+      if (s == "Move Lower") return 0x1D;
+      return 0x00;  // "Off" or unrecognized
+    }
+
+    static bool vane_position_needs_move_bit(const std::string &s)
+    {
+      return s == "Move Full" || s == "Move Upper" || s == "Move Lower";
+    }
+
     RotensoFrameBuilder::RotensoFrameBuilder()
     {
       frame_ = {0xBB, 0x00, 0x01, 0x03, 0x21, 0x00, 0x00,
@@ -41,6 +62,16 @@ namespace esphome
       set_fan_speed(fan_mode);
 
       encode_temperature(target_temp);
+
+      // Vane position - byte 32, plus byte[10] |= 0x38 for "Move" modes.
+      // Sticky like preset/fan: keeps whatever was last set/read unless
+      // this call explicitly changes it.
+      std::string vane = climate->custom_swing_mode.has_value() ? *climate->custom_swing_mode : "Off";
+      frame_[32] = vane_position_to_byte(vane);
+      if (vane_position_needs_move_bit(vane))
+      {
+        frame_[10] |= 0x38;
+      }
     }
 
     void RotensoFrameBuilder::set_raw_byte(size_t index, uint8_t value)

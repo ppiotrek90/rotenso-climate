@@ -108,6 +108,9 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     // Anti-mildew
     result.anti_mildew = (buffer[9] & 0x08) != 0;
 
+    // Vane position
+    result.vertical_vane_position_raw = buffer[51];
+
     // Sleep preset
     bool sleep_on = (buffer[19] & 0x01) != 0;
     if (result.preset == climate::CLIMATE_PRESET_NONE && sleep_on) {
