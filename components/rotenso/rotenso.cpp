@@ -166,52 +166,52 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
     case 0x00:
       this->vertical_vane_position_ = "Off";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(0);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(0));
       break;
     case 0x01:
       this->vertical_vane_position_ = "Top";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(1);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(1));
       break;
     case 0x02:
       this->vertical_vane_position_ = "Upper";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(2);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(2));
       break;
     case 0x03:
       this->vertical_vane_position_ = "Mid";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(3);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(3));
       break;
     case 0x04:
       this->vertical_vane_position_ = "Lower";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(4);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(4));
       break;
     case 0x05:
       this->vertical_vane_position_ = "Bottom";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(5);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(5));
       break;
     case 0x0C:
       this->vertical_vane_position_ = "Move Full";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(6);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
       break;
     case 0x14:
       this->vertical_vane_position_ = "Move Upper";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(7);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
       break;
     case 0x1C:
       this->vertical_vane_position_ = "Move Lower";
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(8);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
       break;
     default:
       ESP_LOGW(TAG, "Unknown vertical vane status: byte[51]=0x%02X", raw);
       if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(9);
+        this->vertical_vane_select_->publish_state(static_cast<size_t>(9));
       break;
   }
 }
