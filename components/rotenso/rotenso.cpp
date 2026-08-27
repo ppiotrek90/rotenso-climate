@@ -116,13 +116,12 @@ namespace esphome
       this->write_array(frame.data(), frame.size());
     }
 
-    void RotensoClimate::send_quiet_test()
+    void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits)
     {
       climate::ClimateCall call = this->make_call();
       RotensoFrameBuilder builder;
       builder.from_climate_state(this, call);
-      builder.or_raw_byte(8, 0x80);
-      builder.or_raw_byte(10, 0x01);
+      builder.or_raw_byte(byte_index, bits);
       auto frame = builder.build_frame();
 
       std::string log_line;
@@ -132,7 +131,29 @@ namespace esphome
         snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
         log_line += byte_str;
       }
-      ESP_LOGW(TAG, "QUIET TEST (byte[8]|=0x80, byte[10]|=0x01): %s", log_line.c_str());
+      ESP_LOGW(TAG, "TEST FRAME OR (byte[%d]|=0x%02X): %s", byte_index, bits, log_line.c_str());
+
+      this->write_array(frame.data(), frame.size());
+    }
+
+    void RotensoClimate::send_test_frame_or2(uint8_t byte_index1, uint8_t bits1, uint8_t byte_index2, uint8_t bits2)
+    {
+      climate::ClimateCall call = this->make_call();
+      RotensoFrameBuilder builder;
+      builder.from_climate_state(this, call);
+      builder.or_raw_byte(byte_index1, bits1);
+      builder.or_raw_byte(byte_index2, bits2);
+      auto frame = builder.build_frame();
+
+      std::string log_line;
+      char byte_str[6];
+      for (size_t i = 0; i < frame.size(); i++)
+      {
+        snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+        log_line += byte_str;
+      }
+      ESP_LOGW(TAG, "TEST FRAME OR2 (byte[%d]|=0x%02X, byte[%d]|=0x%02X): %s",
+               byte_index1, bits1, byte_index2, bits2, log_line.c_str());
 
       this->write_array(frame.data(), frame.size());
     }

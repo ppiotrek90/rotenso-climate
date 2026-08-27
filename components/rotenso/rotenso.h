@@ -20,9 +20,16 @@ class RotensoClimate : public climate::Climate, public PollingComponent, public 
   // quiet fan) on the write side. Safe to call from a template button.
   void send_test_frame(uint8_t byte_index, uint8_t value);
 
-  // TEMPORARY test helper: sends byte[8]|=0x80 AND byte[10]|=0x01 together
-  // in one frame, per the quiet-fan encoding found in a related TCL project.
-  void send_quiet_test();
+  // Same as send_test_frame, but ORs the bits into the byte instead of
+  // replacing it - needed when the byte already carries something else
+  // (e.g. byte[10] also carries fan speed) that we don't want to clobber.
+  void send_test_frame_or(uint8_t byte_index, uint8_t bits);
+
+  // Same as send_test_frame_or, but ORs bits into TWO bytes in the SAME
+  // frame at once - needed when a feature requires two bits set together
+  // (e.g. quiet fan needed byte[8] and byte[10] together; some features
+  // may need e.g. byte[10] and byte[32] together).
+  void send_test_frame_or2(uint8_t byte_index1, uint8_t bits1, uint8_t byte_index2, uint8_t bits2);
 
   // Diagnostic sensors, set from YAML via the rotenso sensor.py platform.
   void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
