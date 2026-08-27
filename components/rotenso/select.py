@@ -1,19 +1,12 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
-
-from esphome.components import select
 from esphome.const import CONF_ID
+from esphome.components import select
 
 from . import climate as rotenso_climate
 
-
 CONF_ROTENSO_ID = "rotenso_id"
 CONF_VERTICAL_VANE = "vertical_vane"
-
-rotenso_ns = cg.esphome_ns.namespace("rotenso")
-RotensoVaneSelect = rotenso_ns.class_(
-    "RotensoVaneSelect", select.Select, cg.Component
-)
 
 VANE_OPTIONS = [
     "Off",
@@ -25,25 +18,25 @@ VANE_OPTIONS = [
     "Move Full",
     "Move Upper",
     "Move Lower",
+    "Unknown",
 ]
-
-VANE_SELECT_SCHEMA = select.select_schema(RotensoVaneSelect)
 
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(rotenso_climate.RotensoClimate),
-        cv.Required(CONF_VERTICAL_VANE): VANE_SELECT_SCHEMA,
+        cv.Required(CONF_VERTICAL_VANE): select.select_schema(
+            rotenso_climate.RotensoVaneSelect, icon="mdi:arrow-up-down"
+        ),
     }
-).extend(cv.COMPONENT_SCHEMA)
+)
 
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_ROTENSO_ID])
-    select_config = config[CONF_VERTICAL_VANE]
-
-    var = cg.new_Pvariable(select_config[CONF_ID])
-    await cg.register_component(var, select_config)
-    await select.register_select(var, select_config, options=VANE_OPTIONS)
-
-    cg.add(var.set_parent(parent))
-    cg.add(parent.set_vertical_vane_select(var))
+    vane_select = cg.new_Pvariable(config[CONF_VERTICAL_VANE][CONF_ID])
+    await cg.register_component(vane_select, config[CONF_VERTICAL_VANE])
+    await select.register_select(
+        vane_select, config[CONF_VERTICAL_VANE], options=VANE_OPTIONS
+    )
+    cg.add(vane_select.set_parent(parent))
+    cg.add(parent.set_vertical_vane_select(vane_select))
