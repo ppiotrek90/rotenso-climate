@@ -1,6 +1,7 @@
 #include "rotenso_frame_builder.h"
 
 #include <cmath>
+#include <unordered_map>
 
 #include "esphome/core/log.h"
 
@@ -9,33 +10,21 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
 
+static const std::unordered_map<std::string, uint8_t> VANE_BYTES = {
+    {"Top", 0x01},
+    {"Upper", 0x02},
+    {"Mid", 0x03},
+    {"Lower", 0x04},
+    {"Bottom", 0x05},
+    {"Move Full", 0x0D},
+    {"Move Upper", 0x15},
+    {"Move Lower", 0x1D},
+};
+
 uint8_t RotensoFrameBuilder::vane_position_to_byte(
     const std::string &position) {
-  if (position == "Top")
-    return 0x01;
-
-  if (position == "Upper")
-    return 0x02;
-
-  if (position == "Mid")
-    return 0x03;
-
-  if (position == "Lower")
-    return 0x04;
-
-  if (position == "Bottom")
-    return 0x05;
-
-  if (position == "Move Full")
-    return 0x0D;
-
-  if (position == "Move Upper")
-    return 0x15;
-
-  if (position == "Move Lower")
-    return 0x1D;
-
-  return 0x00;
+  auto it = VANE_BYTES.find(position);
+  return it != VANE_BYTES.end() ? it->second : 0x00;
 }
 
 bool RotensoFrameBuilder::vane_position_needs_move_bit(
@@ -154,14 +143,16 @@ void RotensoFrameBuilder::set_vane_position(
           : "");
 }
 
+static const std::unordered_map<std::string, uint8_t> HORIZONTAL_VANE_BYTES = {
+    {"On", 0x08},
+};
+
 uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
     const std::string &position) {
   // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Written here to the
   // hypothesized SET byte 33 - needs a real hardware test to confirm.
-  if (position == "On")
-    return 0x08;
-
-  return 0x00;
+  auto it = HORIZONTAL_VANE_BYTES.find(position);
+  return it != HORIZONTAL_VANE_BYTES.end() ? it->second : 0x00;
 }
 
 void RotensoFrameBuilder::set_horizontal_vane_position(
