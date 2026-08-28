@@ -590,12 +590,14 @@ void RotensoClimate::parse_uart_response() {
     auto parsed = parse_heartbeat(buffer);
 
     if (parsed.valid) {
-      climate::ClimateMode old_mode = this->mode;
-      climate::ClimateFanMode old_fan_mode = this->fan_mode;
-      float old_target_temperature = this->target_temperature;
-      float old_current_temperature = this->current_temperature;
-      climate::ClimatePreset old_preset = this->preset;
-      climate::ClimateSwingMode old_swing_mode = this->swing_mode;
+      // Climate fields use std::optional in current ESPHome, so keep the
+      // original types with auto and compare the optionals directly.
+      auto old_mode = this->mode;
+      auto old_fan_mode = this->fan_mode;
+      auto old_target_temperature = this->target_temperature;
+      auto old_current_temperature = this->current_temperature;
+      auto old_preset = this->preset;
+      auto old_swing_mode = this->swing_mode;
 
       this->mode = parsed.mode;
       this->fan_mode = parsed.fan_mode;
@@ -607,29 +609,17 @@ void RotensoClimate::parse_uart_response() {
       this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
       this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
-      ESP_LOGI(TAG, "Updated climate state from heartbeat");
+      // DEBUG keeps the heartbeat telemetry visible without forcing frequent
+      // Home Assistant state publications.
+      ESP_LOGD(
+          TAG,
+          "Heartbeat values: room=%.1fC coil=%.1fC error=%d anti_mildew=%d",
+          parsed.current_temperature,
+          parsed.coil_temperature,
+          parsed.error_code != 0,
+          parsed.anti_mildew);
 
-      if (this->coil_temperature_sensor_ != nullptr) {
-        this->coil_temperature_sensor_->publish_state(
-            parsed.coil_temperature);
-      }
-
-      if (this->room_temperature_sensor_ != nullptr) {
-        this->room_temperature_sensor_->publish_state(
-            parsed.current_temperature);
-      }
-
-      if (this->error_binary_sensor_ != nullptr) {
-        this->error_binary_sensor_->publish_state(
-            parsed.error_code != 0);
-      }
-
-      if (this->anti_mildew_binary_sensor_ != nullptr) {
-        this->anti_mildew_binary_sensor_->publish_state(
-            parsed.anti_mildew);
-      }
-
-      bool changed =
+      bool climate_changed =
           old_mode != this->mode ||
           old_fan_mode != this->fan_mode ||
           old_target_temperature != this->target_temperature ||
@@ -637,8 +627,47 @@ void RotensoClimate::parse_uart_response() {
           old_preset != this->preset ||
           old_swing_mode != this->swing_mode;
 
-      if (changed) {
+      if (climate_changed) {
+        ESP_LOGI(TAG, "Climate state changed from heartbeat");
         this->publish_state();
+      }
+
+      // Publish the extra sensors only when their value actually changes.
+      // The first valid heartbeat always publishes the initial state.
+      const bool error_state = parsed.error_code != 0;
+
+      if (this->coil_temperature_sensor_ != nullptr &&
+          (!this->has_published_coil_temperature_ ||
+           this->last_published_coil_temperature_ != parsed.coil_temperature)) {
+        this->last_published_coil_temperature_ = parsed.coil_temperature;
+        this->has_published_coil_temperature_ = true;
+        this->coil_temperature_sensor_->publish_state(
+            parsed.coil_temperature);
+      }
+
+      if (this->room_temperature_sensor_ != nullptr &&
+          (!this->has_published_room_temperature_ ||
+           this->last_published_room_temperature_ != parsed.current_temperature)) {
+        this->last_published_room_temperature_ = parsed.current_temperature;
+        this->has_published_room_temperature_ = true;
+        this->room_temperature_sensor_->publish_state(
+            parsed.current_temperature);
+      }
+
+      if (this->error_binary_sensor_ != nullptr &&
+          (!this->has_published_error_state_ ||
+           this->last_published_error_state_ != error_state)) {
+        this->last_published_error_state_ = error_state;
+        this->has_published_error_state_ = true;
+        this->error_binary_sensor_->publish_state(error_state);
+      }
+
+      if (this->anti_mildew_binary_sensor_ != nullptr &&
+          (!this->has_published_anti_mildew_state_ ||
+           this->last_published_anti_mildew_state_ != parsed.anti_mildew)) {
+        this->last_published_anti_mildew_state_ = parsed.anti_mildew;
+        this->has_published_anti_mildew_state_ = true;
+        this->anti_mildew_binary_sensor_->publish_state(parsed.anti_mildew);
       }
     }
   }

@@ -94,6 +94,15 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   sensor::Sensor *room_temperature_sensor_{nullptr};
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
+
+  bool has_published_coil_temperature_{false};
+  float last_published_coil_temperature_{0.0f};
+  bool has_published_room_temperature_{false};
+  float last_published_room_temperature_{0.0f};
+  bool has_published_error_state_{false};
+  bool last_published_error_state_{false};
+  bool has_published_anti_mildew_state_{false};
+  bool last_published_anti_mildew_state_{false};
 };
 
 }  // namespace rotenso
