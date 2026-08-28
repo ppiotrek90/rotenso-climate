@@ -63,11 +63,13 @@ climate::ClimateTraits RotensoClimate::traits() {
   });
 
   // Simple on/off toggle on the climate card itself, alongside the detailed
-  // "Vertical Vane" select. Only OFF/VERTICAL are supported - we only have
-  // confirmed working control for vertical vane movement, not horizontal.
+  // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
+  // horizontal READ is confirmed, WRITE (byte 33) is an unconfirmed guess.
   traits.set_supported_swing_modes({
       climate::CLIMATE_SWING_OFF,
       climate::CLIMATE_SWING_VERTICAL,
+      climate::CLIMATE_SWING_HORIZONTAL,
+      climate::CLIMATE_SWING_BOTH,
   });
 
   traits.set_visual_min_temperature(16);
@@ -93,13 +95,20 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing = *call.get_swing_mode();
     this->swing_mode = swing;
-    // Simple toggle: VERTICAL -> start full sweep, OFF -> stop and clear.
-    // Overrides whatever the detailed select had, matching the intent of
-    // a simple on/off click on the climate card.
-    this->vertical_vane_position_ = (swing == climate::CLIMATE_SWING_VERTICAL) ? "Move Full" : "Off";
+    // Simple toggle, overrides whatever the detailed selects had, matching
+    // the intent of a simple click on the climate card.
+    bool want_vertical = (swing == climate::CLIMATE_SWING_VERTICAL || swing == climate::CLIMATE_SWING_BOTH);
+    bool want_horizontal = (swing == climate::CLIMATE_SWING_HORIZONTAL || swing == climate::CLIMATE_SWING_BOTH);
+
+    this->vertical_vane_position_ = want_vertical ? "Move Full" : "Off";
+    this->horizontal_vane_position_ = want_horizontal ? "On" : "Off";
+    this->vane_command_sent_at_ = millis();
+
     if (this->vertical_vane_select_ != nullptr) {
-      this->vertical_vane_select_->publish_state(
-          static_cast<size_t>(swing == climate::CLIMATE_SWING_VERTICAL ? 6 : 0));
+      this->vertical_vane_select_->publish_state(static_cast<size_t>(want_vertical ? 6 : 0));
+    }
+    if (this->horizontal_vane_select_ != nullptr) {
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(want_horizontal ? 1 : 0));
     }
   }
 
@@ -110,6 +119,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   // Preserve the currently selected vane position when another
   // Climate parameter is changed.
   builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   auto frame = builder.build_frame();
 
@@ -123,6 +133,15 @@ void RotensoVaneSelect::control(size_t index) {
   }
 
   this->parent_->control_vertical_vane(index);
+}
+
+void RotensoHorizontalVaneSelect::control(size_t index) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGW("rotenso.climate", "Horizontal vane select has no parent");
+    return;
+  }
+
+  this->parent_->control_horizontal_vane(index);
 }
 
 void RotensoClimate::control_vertical_vane(size_t index) {
@@ -149,10 +168,40 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   ESP_LOGI(TAG, "Vertical vane set to: %s", position.c_str());
 
   this->vertical_vane_position_ = position;
-  this->swing_mode = (index >= 6) ? climate::CLIMATE_SWING_VERTICAL : climate::CLIMATE_SWING_OFF;
+  this->update_swing_mode_();
+  this->vane_command_sent_at_ = millis();
 
   if (this->vertical_vane_select_ != nullptr) {
     this->vertical_vane_select_->publish_state(index);
+  }
+
+  this->publish_state();
+  this->send_current_state_frame_();
+}
+
+void RotensoClimate::control_horizontal_vane(size_t index) {
+  // Select option indices: 0 Off, 1 On, 2 Unknown.
+  if (index > 2) {
+    ESP_LOGW(TAG, "Invalid horizontal vane select index: %u", static_cast<unsigned>(index));
+    return;
+  }
+
+  if (index == 2) {
+    ESP_LOGW(TAG, "Ignoring attempt to select Unknown horizontal vane state");
+    return;
+  }
+
+  static const char *const positions[] = {"Off", "On"};
+
+  const std::string position = positions[index];
+  ESP_LOGI(TAG, "Horizontal vane set to: %s", position.c_str());
+
+  this->horizontal_vane_position_ = position;
+  this->update_swing_mode_();
+  this->vane_command_sent_at_ = millis();
+
+  if (this->horizontal_vane_select_ != nullptr) {
+    this->horizontal_vane_select_->publish_state(index);
   }
 
   this->publish_state();
@@ -165,6 +214,8 @@ void RotensoClimate::send_current_state_frame_() {
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
   builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   auto frame = builder.build_frame();
 
@@ -181,6 +232,14 @@ void RotensoClimate::send_current_state_frame_() {
 }
 
 void RotensoClimate::publish_vane_state_(uint8_t raw) {
+  // Ignore a status frame that arrives too soon after we sent a vane
+  // command - it may still be answering the previous heartbeat request
+  // and would show a stale value, briefly flickering the select/swing
+  // back to the old state before the next real heartbeat corrects it.
+  if (millis() - this->vane_command_sent_at_ < 2000) {
+    return;
+  }
+
   // byte[51] packs TWO independent fields:
   //   bits 3-4 = move sub-mode (1=Full, 2=Upper, 3=Lower, 0=not moving)
   //   bits 0-2 = position anchor (1-5 = Top..Bottom, 0 = none)
@@ -194,28 +253,27 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
 
   if (mv == 0x01) {
     this->vertical_vane_position_ = "Move Full";
-    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
+    this->update_swing_mode_();
     return;
   }
   if (mv == 0x02) {
     this->vertical_vane_position_ = "Move Upper";
-    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
+    this->update_swing_mode_();
     return;
   }
   if (mv == 0x03) {
     this->vertical_vane_position_ = "Move Lower";
-    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
+    this->update_swing_mode_();
     return;
   }
 
   // mv == 0: fixed position (or fully off)
-  this->swing_mode = climate::CLIMATE_SWING_OFF;
   switch (pos) {
     case 0x00:
       this->vertical_vane_position_ = "Off";
@@ -253,6 +311,47 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
         this->vertical_vane_select_->publish_state(static_cast<size_t>(9));
       break;
   }
+  this->update_swing_mode_();
+}
+
+void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
+  // Ignore a status frame that arrives too soon after we sent a vane
+  // command - same reasoning as publish_vane_state_().
+  if (millis() - this->vane_command_sent_at_ < 2000) {
+    return;
+  }
+
+  // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Perfectly correlated
+  // with byte[10] bit 0x20 across many real remote toggles.
+  if (raw == 0x08) {
+    this->horizontal_vane_position_ = "On";
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(1));
+  } else if (raw == 0x00) {
+    this->horizontal_vane_position_ = "Off";
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(0));
+  } else {
+    ESP_LOGW(TAG, "Unknown horizontal vane status: byte[52]=0x%02X", raw);
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(2));
+  }
+  this->update_swing_mode_();
+}
+
+void RotensoClimate::update_swing_mode_() {
+  bool vertical_moving = this->vertical_vane_position_.rfind("Move", 0) == 0;
+  bool horizontal_on = this->horizontal_vane_position_ == "On";
+
+  if (vertical_moving && horizontal_on) {
+    this->swing_mode = climate::CLIMATE_SWING_BOTH;
+  } else if (vertical_moving) {
+    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
+  } else if (horizontal_on) {
+    this->swing_mode = climate::CLIMATE_SWING_HORIZONTAL;
+  } else {
+    this->swing_mode = climate::CLIMATE_SWING_OFF;
+  }
 }
 
 void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
@@ -261,6 +360,7 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
   builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.set_raw_byte(byte_index, value);
 
@@ -284,12 +384,47 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
   this->write_array(frame.data(), frame.size());
 }
 
+void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
+                                       uint8_t byte_index2, uint8_t value2) {
+  climate::ClimateCall call = this->make_call();
+
+  RotensoFrameBuilder builder;
+  builder.from_climate_state(this, call);
+  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+
+  builder.set_raw_byte(byte_index1, value1);
+  builder.set_raw_byte(byte_index2, value2);
+
+  auto frame = builder.build_frame();
+
+  std::string log_line;
+  char byte_str[6];
+
+  for (size_t i = 0; i < frame.size(); i++) {
+    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+    log_line += byte_str;
+  }
+
+  ESP_LOGW(
+      TAG,
+      "TEST FRAME2 (byte[%d]=0x%02X, byte[%d]=0x%02X): %s",
+      byte_index1,
+      value1,
+      byte_index2,
+      value2,
+      log_line.c_str());
+
+  this->write_array(frame.data(), frame.size());
+}
+
 void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
   climate::ClimateCall call = this->make_call();
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
   builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.or_raw_byte(byte_index, bits);
 
@@ -323,6 +458,7 @@ void RotensoClimate::send_test_frame_or2(
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
   builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.or_raw_byte(byte_index1, bits1);
   builder.or_raw_byte(byte_index2, bits2);
@@ -414,6 +550,7 @@ void RotensoClimate::parse_uart_response() {
 
       // byte[51] is the reported vertical vane position.
       this->publish_vane_state_(parsed.vertical_vane_position_raw);
+      this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
       ESP_LOGI(TAG, "Updated climate state from heartbeat");
 
