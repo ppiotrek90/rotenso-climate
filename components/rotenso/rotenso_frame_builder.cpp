@@ -1,7 +1,6 @@
 #include "rotenso_frame_builder.h"
 
 #include <cmath>
-#include <unordered_map>
 
 #include "esphome/core/log.h"
 
@@ -10,56 +9,40 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
 
-// CONFIRMED against real hardware: byte 32, bits 0-2 = fix, bits 3-4 = mv.
-static const std::unordered_map<std::string, uint8_t> VERTICAL_VANE_BYTES = {
-    {"Top", 0x01},
-    {"Upper", 0x02},
-    {"Mid", 0x03},
-    {"Lower", 0x04},
-    {"Bottom", 0x05},
-    {"Move Full", 0x0D},
-    {"Move Upper", 0x15},
-    {"Move Lower", 0x1D},
-};
-
-// CONFIRMED against real hardware: byte 33, bits 0-2 = fix, bits 3-5 = mv.
-static const std::unordered_map<std::string, uint8_t> HORIZONTAL_VANE_BYTES = {
-    {"Left", 0x01},
-    {"Mid-left", 0x02},
-    {"Mid", 0x03},
-    {"Mid-right", 0x04},
-    {"Right", 0x05},
-    {"Move Full", 0x08},
-    {"Move Left", 0x10},
-    {"Move Mid", 0x18},
-    {"Move Right", 0x20},
-};
-
-uint8_t RotensoFrameBuilder::vertical_vane_position_to_byte(
+uint8_t RotensoFrameBuilder::vane_position_to_byte(
     const std::string &position) {
-  auto it = VERTICAL_VANE_BYTES.find(position);
-  return it != VERTICAL_VANE_BYTES.end() ? it->second : 0x00;
+  if (position == "Top")
+    return 0x01;
+
+  if (position == "Upper")
+    return 0x02;
+
+  if (position == "Mid")
+    return 0x03;
+
+  if (position == "Lower")
+    return 0x04;
+
+  if (position == "Bottom")
+    return 0x05;
+
+  if (position == "Move Full")
+    return 0x0D;
+
+  if (position == "Move Upper")
+    return 0x15;
+
+  if (position == "Move Lower")
+    return 0x1D;
+
+  return 0x00;
 }
 
-bool RotensoFrameBuilder::vertical_vane_position_needs_move_bit(
+bool RotensoFrameBuilder::vane_position_needs_move_bit(
     const std::string &position) {
   return position == "Move Full" ||
          position == "Move Upper" ||
          position == "Move Lower";
-}
-
-uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
-    const std::string &position) {
-  auto it = HORIZONTAL_VANE_BYTES.find(position);
-  return it != HORIZONTAL_VANE_BYTES.end() ? it->second : 0x00;
-}
-
-bool RotensoFrameBuilder::horizontal_vane_position_needs_move_bit(
-    const std::string &position) {
-  return position == "Move Full" ||
-         position == "Move Left" ||
-         position == "Move Mid" ||
-         position == "Move Right";
 }
 
 RotensoFrameBuilder::RotensoFrameBuilder() {
@@ -74,8 +57,8 @@ RotensoFrameBuilder::RotensoFrameBuilder() {
       0x60,  // 7 - Power OFF by default
       0x00,  // 8 - Preset + Mode
       0x18,  // 9 - Temperature placeholder
-      0x00,  // 10 - Fan / Vertical vane move bits
-      0x00,  // 11 - Temperature decimal / Horizontal vane move bit
+      0x00,  // 10 - Fan / Move bits
+      0x00,  // 11
       0x00,  // 12
       0x00,  // 13
       0x00,  // 14
@@ -96,8 +79,8 @@ RotensoFrameBuilder::RotensoFrameBuilder() {
       0x00,  // 29
       0x00,  // 30
       0x00,  // 31
-      0x00,  // 32 - Vertical vane position
-      0x00,  // 33 - Horizontal vane position
+      0x00,  // 32 - Vertical vane
+      0x00,  // 33
       0x00,  // 34
       0x00,  // 35
       0x00,  // 36
@@ -147,14 +130,14 @@ void RotensoFrameBuilder::from_climate_state(
 
 }
 
-void RotensoFrameBuilder::set_vertical_vane_position(
+void RotensoFrameBuilder::set_vane_position(
     const std::string &position) {
   const uint8_t vane_byte =
-      vertical_vane_position_to_byte(position);
+      vane_position_to_byte(position);
 
   frame_[32] = vane_byte;
 
-  if (vertical_vane_position_needs_move_bit(position)) {
+  if (vane_position_needs_move_bit(position)) {
     // IMPORTANT:
     // byte[10] already contains the fan setting.
     // OR 0x38 instead of replacing byte[10].
@@ -163,37 +146,33 @@ void RotensoFrameBuilder::set_vertical_vane_position(
 
   ESP_LOGD(
       TAG,
-      "Vertical vane position: %s -> byte[32]=0x%02X%s",
+      "Vane position: %s -> byte[32]=0x%02X%s",
       position.c_str(),
       frame_[32],
-      vertical_vane_position_needs_move_bit(position)
+      vane_position_needs_move_bit(position)
           ? ", byte[10] |= 0x38"
           : "");
+}
+
+uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
+    const std::string &position) {
+  // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Written here to the
+  // hypothesized SET byte 33 - needs a real hardware test to confirm.
+  if (position == "On")
+    return 0x08;
+
+  return 0x00;
 }
 
 void RotensoFrameBuilder::set_horizontal_vane_position(
     const std::string &position) {
   frame_[33] = horizontal_vane_position_to_byte(position);
 
-  // CONFIRMED against real hardware: byte[11] bit 0x08 is the horizontal
-  // "movement enable" bit (same role as byte[10] bits 3-5 for vertical).
-  // It must be CLEARED for a genuine fixed position (otherwise the AC
-  // treats the fix value as just a starting point and keeps sweeping),
-  // and SET for the "Move" sub-modes. byte[11] also carries the
-  // whole/half-degree temperature bit (0x02) set earlier by
-  // encode_temperature() - only touch bit 0x08 here, leave the rest alone.
-  if (horizontal_vane_position_needs_move_bit(position)) {
-    frame_[11] |= 0x08;
-  } else {
-    frame_[11] &= ~0x08;
-  }
-
   ESP_LOGD(
       TAG,
-      "Horizontal vane position: %s -> byte[33]=0x%02X, byte[11]=0x%02X",
+      "Horizontal vane position (UNCONFIRMED write): %s -> byte[33]=0x%02X",
       position.c_str(),
-      frame_[33],
-      frame_[11]);
+      frame_[33]);
 }
 
 void RotensoFrameBuilder::set_raw_byte(

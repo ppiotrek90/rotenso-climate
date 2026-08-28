@@ -16,7 +16,7 @@ namespace rotenso {
 
 class RotensoClimate;
 
-class RotensoVerticalVaneSelect : public select::Select {
+class RotensoVaneSelect : public select::Select {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
 
@@ -77,7 +77,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void parse_uart_response();
 
   void send_current_state_frame_();
-  void publish_vertical_vane_state_(uint8_t raw);
+  void publish_vane_state_(uint8_t raw);
   void publish_horizontal_vane_state_(uint8_t raw);
   void update_swing_mode_();
 
