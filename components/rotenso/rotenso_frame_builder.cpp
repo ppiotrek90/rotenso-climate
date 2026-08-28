@@ -144,26 +144,53 @@ void RotensoFrameBuilder::set_vertical_vane_position(
 }
 
 static const std::unordered_map<std::string, uint8_t> HORIZONTAL_VANE_BYTES = {
-    {"On", 0x08},
+    {"Left", 0x01},
+    {"Mid-left", 0x02},
+    {"Mid", 0x03},
+    {"Mid-right", 0x04},
+    {"Right", 0x05},
+    {"Move Full", 0x08},
+    {"Move Left", 0x10},
+    {"Move Mid", 0x18},
+    {"Move Right", 0x20},
 };
 
 uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
     const std::string &position) {
-  // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Written here to the
-  // hypothesized SET byte 33 - needs a real hardware test to confirm.
+  // CONFIRMED against real hardware: byte 33, bits 0-2 = fix, bits 3-5 = mv.
   auto it = HORIZONTAL_VANE_BYTES.find(position);
   return it != HORIZONTAL_VANE_BYTES.end() ? it->second : 0x00;
+}
+
+bool RotensoFrameBuilder::horizontal_vane_position_needs_move_bit(
+    const std::string &position) {
+  return position == "Move Full" ||
+         position == "Move Left" ||
+         position == "Move Mid" ||
+         position == "Move Right";
 }
 
 void RotensoFrameBuilder::set_horizontal_vane_position(
     const std::string &position) {
   frame_[33] = horizontal_vane_position_to_byte(position);
 
+  // CONFIRMED against real hardware: byte[11] bit 0x08 is the horizontal
+  // movement enable bit. Must be CLEARED for a fixed position and SET for
+  // the "Move" sub-modes. byte[11] also carries the whole/half-degree
+  // temperature bit set earlier by encode_temperature() - only touch
+  // bit 0x08 here.
+  if (horizontal_vane_position_needs_move_bit(position)) {
+    frame_[11] |= 0x08;
+  } else {
+    frame_[11] &= ~0x08;
+  }
+
   ESP_LOGD(
       TAG,
-      "Horizontal vane position (UNCONFIRMED write): %s -> byte[33]=0x%02X",
+      "Horizontal vane position: %s -> byte[33]=0x%02X, byte[11]=0x%02X",
       position.c_str(),
-      frame_[33]);
+      frame_[33],
+      frame_[11]);
 }
 
 void RotensoFrameBuilder::set_raw_byte(

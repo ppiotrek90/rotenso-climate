@@ -101,14 +101,14 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     bool want_horizontal = (swing == climate::CLIMATE_SWING_HORIZONTAL || swing == climate::CLIMATE_SWING_BOTH);
 
     this->vertical_vane_position_ = want_vertical ? "Move Full" : "Off";
-    this->horizontal_vane_position_ = want_horizontal ? "On" : "Off";
+    this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
     this->vane_command_sent_at_ = millis();
 
     if (this->vertical_vane_select_ != nullptr) {
       this->vertical_vane_select_->publish_state(static_cast<size_t>(want_vertical ? 6 : 0));
     }
     if (this->horizontal_vane_select_ != nullptr) {
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(want_horizontal ? 1 : 0));
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(want_horizontal ? 6 : 0));
     }
   }
 
@@ -180,18 +180,23 @@ void RotensoClimate::control_vertical_vane(size_t index) {
 }
 
 void RotensoClimate::control_horizontal_vane(size_t index) {
-  // Select option indices: 0 Off, 1 On, 2 Unknown.
-  if (index > 2) {
+  // Select option indices:
+  // 0 Off, 1 Left, 2 Mid-left, 3 Mid, 4 Mid-right, 5 Right,
+  // 6 Move Full, 7 Move Left, 8 Move Mid, 9 Move Right, 10 Unknown.
+  if (index > 10) {
     ESP_LOGW(TAG, "Invalid horizontal vane select index: %u", static_cast<unsigned>(index));
     return;
   }
 
-  if (index == 2) {
+  if (index == 10) {
     ESP_LOGW(TAG, "Ignoring attempt to select Unknown horizontal vane state");
     return;
   }
 
-  static const char *const positions[] = {"Off", "On"};
+  static const char *const positions[] = {
+      "Off", "Left", "Mid-left", "Mid", "Mid-right", "Right",
+      "Move Full", "Move Left", "Move Mid", "Move Right",
+  };
 
   const std::string position = positions[index];
   ESP_LOGI(TAG, "Horizontal vane set to: %s", position.c_str());
@@ -321,33 +326,79 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
     return;
   }
 
-  // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Perfectly correlated
-  // with byte[10] bit 0x20 across many real remote toggles.
-  if (raw == 0x08) {
-    this->horizontal_vane_position_ = "On";
+  // byte[52] packs TWO independent fields, same as byte[51] for vertical:
+  //   bits 3-5 = move sub-mode (1=Full, 2=Left, 3=Mid, 4=Right, 0=not moving)
+  //   bits 0-2 = position anchor (1-5 = Left..Right, 0 = none)
+  uint8_t mv = (raw >> 3) & 0x07;
+  uint8_t pos = raw & 0x07;
+
+  if (mv == 0x01) {
+    this->horizontal_vane_position_ = "Move Full";
     if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(1));
-  } else if (raw == 0x00) {
-    this->horizontal_vane_position_ = "Off";
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(6));
+  } else if (mv == 0x02) {
+    this->horizontal_vane_position_ = "Move Left";
     if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(0));
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(7));
+  } else if (mv == 0x03) {
+    this->horizontal_vane_position_ = "Move Mid";
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(8));
+  } else if (mv == 0x04) {
+    this->horizontal_vane_position_ = "Move Right";
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(static_cast<size_t>(9));
   } else {
-    ESP_LOGW(TAG, "Unknown horizontal vane status: byte[52]=0x%02X", raw);
-    if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(2));
+    switch (pos) {
+      case 0x00:
+        this->horizontal_vane_position_ = "Off";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(0));
+        break;
+      case 0x01:
+        this->horizontal_vane_position_ = "Left";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(1));
+        break;
+      case 0x02:
+        this->horizontal_vane_position_ = "Mid-left";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(2));
+        break;
+      case 0x03:
+        this->horizontal_vane_position_ = "Mid";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(3));
+        break;
+      case 0x04:
+        this->horizontal_vane_position_ = "Mid-right";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(4));
+        break;
+      case 0x05:
+        this->horizontal_vane_position_ = "Right";
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(5));
+        break;
+      default:
+        ESP_LOGW(TAG, "Unknown horizontal vane status: byte[52]=0x%02X", raw);
+        if (this->horizontal_vane_select_ != nullptr)
+          this->horizontal_vane_select_->publish_state(static_cast<size_t>(10));
+        break;
+    }
   }
   this->update_swing_mode_();
 }
 
 void RotensoClimate::update_swing_mode_() {
   bool vertical_moving = this->vertical_vane_position_.rfind("Move", 0) == 0;
-  bool horizontal_on = this->horizontal_vane_position_ == "On";
+  bool horizontal_moving = this->horizontal_vane_position_.rfind("Move", 0) == 0;
 
-  if (vertical_moving && horizontal_on) {
+  if (vertical_moving && horizontal_moving) {
     this->swing_mode = climate::CLIMATE_SWING_BOTH;
   } else if (vertical_moving) {
     this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
-  } else if (horizontal_on) {
+  } else if (horizontal_moving) {
     this->swing_mode = climate::CLIMATE_SWING_HORIZONTAL;
   } else {
     this->swing_mode = climate::CLIMATE_SWING_OFF;
