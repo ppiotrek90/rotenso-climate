@@ -8,11 +8,15 @@ from esphome.const import CONF_ID
 from .climate import RotensoClimate
 
 CONF_ROTENSO_ID = "rotenso_id"
+CONF_VANE = "vane"
 
 rotenso_ns = cg.esphome_ns.namespace("rotenso")
-RotensoVaneSelect = rotenso_ns.class_("RotensoVaneSelect", select.Select)
+RotensoVerticalVaneSelect = rotenso_ns.class_("RotensoVerticalVaneSelect", select.Select)
+RotensoHorizontalVaneSelect = rotenso_ns.class_(
+    "RotensoHorizontalVaneSelect", select.Select
+)
 
-VANE_OPTIONS = [
+VERTICAL_VANE_OPTIONS = [
     "Off",
     "Top",
     "Upper",
@@ -25,9 +29,29 @@ VANE_OPTIONS = [
     "Unknown",
 ]
 
-CONFIG_SCHEMA = select.select_schema(RotensoVaneSelect).extend(
+HORIZONTAL_VANE_OPTIONS = [
+    "Off",
+    "Left",
+    "Mid-left",
+    "Mid",
+    "Mid-right",
+    "Right",
+    "Move Full",
+    "Move Left",
+    "Move Mid",
+    "Move Right",
+    "Unknown",
+]
+
+# "vane: vertical" (default, matches existing configs with no "vane" key at
+# all) or "vane: horizontal" (new). Two separate `- platform: rotenso`
+# entries under `select:` let you add both without breaking old YAML.
+CONFIG_SCHEMA = select.select_schema(RotensoVerticalVaneSelect).extend(
     {
         cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(RotensoClimate),
+        cv.Optional(CONF_VANE, default="vertical"): cv.one_of(
+            "vertical", "horizontal", lower=True
+        ),
     }
 )
 
@@ -35,8 +59,15 @@ CONFIG_SCHEMA = select.select_schema(RotensoVaneSelect).extend(
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_ROTENSO_ID])
 
-    var = cg.new_Pvariable(config[CONF_ID])
-    await select.register_select(var, config, options=VANE_OPTIONS)
-
-    cg.add(var.set_parent(parent))
-    cg.add(parent.set_vertical_vane_select(var))
+    if config[CONF_VANE] == "horizontal":
+        var = cg.new_Pvariable(config[CONF_ID], RotensoHorizontalVaneSelect)
+        await select.register_select(
+            var, config, options=HORIZONTAL_VANE_OPTIONS
+        )
+        cg.add(var.set_parent(parent))
+        cg.add(parent.set_horizontal_vane_select(var))
+    else:
+        var = cg.new_Pvariable(config[CONF_ID], RotensoVerticalVaneSelect)
+        await select.register_select(var, config, options=VERTICAL_VANE_OPTIONS)
+        cg.add(var.set_parent(parent))
+        cg.add(parent.set_vertical_vane_select(var))
