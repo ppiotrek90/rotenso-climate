@@ -19,7 +19,7 @@ class RotensoFrameBuilder {
       const climate::ClimateCall &call);
 
   // Apply vertical vane position.
-  void set_vane_position(const std::string &position);
+  void set_vertical_vane_position(const std::string &position);
 
   // Apply horizontal vane position - byte 33 in the SET frame. UNCONFIRMED:
   // guessed by analogy with vertical (SET byte 32 -> STATUS byte 51, a +19
@@ -49,10 +49,10 @@ class RotensoFrameBuilder {
 
   void set_fan_speed(climate::ClimateFanMode fan_mode);
 
-  static uint8_t vane_position_to_byte(
+  static uint8_t vertical_vane_position_to_byte(
       const std::string &position);
 
-  static bool vane_position_needs_move_bit(
+  static bool vertical_vane_position_needs_move_bit(
       const std::string &position);
 
   static uint8_t horizontal_vane_position_to_byte(

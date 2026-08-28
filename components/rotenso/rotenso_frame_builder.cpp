@@ -10,7 +10,7 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
 
-static const std::unordered_map<std::string, uint8_t> VANE_BYTES = {
+static const std::unordered_map<std::string, uint8_t> VERTICAL_VANE_BYTES = {
     {"Top", 0x01},
     {"Upper", 0x02},
     {"Mid", 0x03},
@@ -21,13 +21,13 @@ static const std::unordered_map<std::string, uint8_t> VANE_BYTES = {
     {"Move Lower", 0x1D},
 };
 
-uint8_t RotensoFrameBuilder::vane_position_to_byte(
+uint8_t RotensoFrameBuilder::vertical_vane_position_to_byte(
     const std::string &position) {
-  auto it = VANE_BYTES.find(position);
-  return it != VANE_BYTES.end() ? it->second : 0x00;
+  auto it = VERTICAL_VANE_BYTES.find(position);
+  return it != VERTICAL_VANE_BYTES.end() ? it->second : 0x00;
 }
 
-bool RotensoFrameBuilder::vane_position_needs_move_bit(
+bool RotensoFrameBuilder::vertical_vane_position_needs_move_bit(
     const std::string &position) {
   return position == "Move Full" ||
          position == "Move Upper" ||
@@ -119,14 +119,14 @@ void RotensoFrameBuilder::from_climate_state(
 
 }
 
-void RotensoFrameBuilder::set_vane_position(
+void RotensoFrameBuilder::set_vertical_vane_position(
     const std::string &position) {
   const uint8_t vane_byte =
-      vane_position_to_byte(position);
+      vertical_vane_position_to_byte(position);
 
   frame_[32] = vane_byte;
 
-  if (vane_position_needs_move_bit(position)) {
+  if (vertical_vane_position_needs_move_bit(position)) {
     // IMPORTANT:
     // byte[10] already contains the fan setting.
     // OR 0x38 instead of replacing byte[10].
@@ -138,7 +138,7 @@ void RotensoFrameBuilder::set_vane_position(
       "Vane position: %s -> byte[32]=0x%02X%s",
       position.c_str(),
       frame_[32],
-      vane_position_needs_move_bit(position)
+      vertical_vane_position_needs_move_bit(position)
           ? ", byte[10] |= 0x38"
           : "");
 }

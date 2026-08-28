@@ -10,9 +10,9 @@ from .climate import RotensoClimate
 CONF_ROTENSO_ID = "rotenso_id"
 
 rotenso_ns = cg.esphome_ns.namespace("rotenso")
-RotensoVaneSelect = rotenso_ns.class_("RotensoVaneSelect", select.Select)
+RotensoVerticalVaneSelect = rotenso_ns.class_("RotensoVerticalVaneSelect", select.Select)
 
-VANE_OPTIONS = [
+VERTICAL_VANE_OPTIONS = [
     "Off",
     "Top",
     "Upper",
@@ -25,7 +25,7 @@ VANE_OPTIONS = [
     "Unknown",
 ]
 
-CONFIG_SCHEMA = select.select_schema(RotensoVaneSelect).extend(
+CONFIG_SCHEMA = select.select_schema(RotensoVerticalVaneSelect).extend(
     {
         cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(RotensoClimate),
     }
@@ -36,7 +36,7 @@ async def to_code(config):
     parent = await cg.get_variable(config[CONF_ROTENSO_ID])
 
     var = cg.new_Pvariable(config[CONF_ID])
-    await select.register_select(var, config, options=VANE_OPTIONS)
+    await select.register_select(var, config, options=VERTICAL_VANE_OPTIONS)
 
     cg.add(var.set_parent(parent))
     cg.add(parent.set_vertical_vane_select(var))

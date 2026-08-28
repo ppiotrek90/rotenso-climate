@@ -118,7 +118,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   // Preserve the currently selected vane position when another
   // Climate parameter is changed.
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   auto frame = builder.build_frame();
@@ -126,7 +126,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   this->write_array(frame.data(), frame.size());
 }
 
-void RotensoVaneSelect::control(size_t index) {
+void RotensoVerticalVaneSelect::control(size_t index) {
   if (this->parent_ == nullptr) {
     ESP_LOGW("rotenso.climate", "Vertical vane select has no parent");
     return;
@@ -213,7 +213,7 @@ void RotensoClimate::send_current_state_frame_() {
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
@@ -231,7 +231,7 @@ void RotensoClimate::send_current_state_frame_() {
   this->write_array(frame.data(), frame.size());
 }
 
-void RotensoClimate::publish_vane_state_(uint8_t raw) {
+void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
   // Ignore a status frame that arrives too soon after we sent a vane
   // command - it may still be answering the previous heartbeat request
   // and would show a stale value, briefly flickering the select/swing
@@ -316,7 +316,7 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
 
 void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
   // Ignore a status frame that arrives too soon after we sent a vane
-  // command - same reasoning as publish_vane_state_().
+  // command - same reasoning as publish_vertical_vane_state_().
   if (millis() - this->vane_command_sent_at_ < 2000) {
     return;
   }
@@ -359,7 +359,7 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.set_raw_byte(byte_index, value);
@@ -390,7 +390,7 @@ void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.set_raw_byte(byte_index1, value1);
@@ -423,7 +423,7 @@ void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.or_raw_byte(byte_index, bits);
@@ -457,7 +457,7 @@ void RotensoClimate::send_test_frame_or2(
 
   RotensoFrameBuilder builder;
   builder.from_climate_state(this, call);
-  builder.set_vane_position(this->vertical_vane_position_);
+  builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   builder.or_raw_byte(byte_index1, bits1);
@@ -549,7 +549,7 @@ void RotensoClimate::parse_uart_response() {
       this->preset = parsed.preset;
 
       // byte[51] is the reported vertical vane position.
-      this->publish_vane_state_(parsed.vertical_vane_position_raw);
+      this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
       this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
       ESP_LOGI(TAG, "Updated climate state from heartbeat");
