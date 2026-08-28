@@ -158,11 +158,38 @@ void RotensoClimate::send_current_state_frame_() {
 }
 
 void RotensoClimate::publish_vane_state_(uint8_t raw) {
-  // The AC reports the MOVE states with the low bit cleared:
-  // command 0x0D -> status 0x0C
-  // command 0x15 -> status 0x14
-  // command 0x1D -> status 0x1C
-  switch (raw) {
+  // byte[51] packs TWO independent fields:
+  //   bits 3-4 = move sub-mode (1=Full, 2=Upper, 3=Lower, 0=not moving)
+  //   bits 0-2 = position anchor (1-5 = Top..Bottom, 0 = none)
+  // When moving, the AC reports whatever position the vane started the
+  // sweep from in bits 0-2 - that varies (we've seen 0x09, 0x0C/0x0D,
+  // 0x14/0x15, 0x1C/0x1D), so the move sub-mode (bits 3-4) is what
+  // actually identifies the mode; the position bits must be ignored for
+  // that classification, not matched as part of one fixed byte value.
+  uint8_t mv = (raw >> 3) & 0x03;
+  uint8_t pos = raw & 0x07;
+
+  if (mv == 0x01) {
+    this->vertical_vane_position_ = "Move Full";
+    if (this->vertical_vane_select_ != nullptr)
+      this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
+    return;
+  }
+  if (mv == 0x02) {
+    this->vertical_vane_position_ = "Move Upper";
+    if (this->vertical_vane_select_ != nullptr)
+      this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
+    return;
+  }
+  if (mv == 0x03) {
+    this->vertical_vane_position_ = "Move Lower";
+    if (this->vertical_vane_select_ != nullptr)
+      this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
+    return;
+  }
+
+  // mv == 0: fixed position (or fully off)
+  switch (pos) {
     case 0x00:
       this->vertical_vane_position_ = "Off";
       if (this->vertical_vane_select_ != nullptr)
@@ -192,21 +219,6 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
       this->vertical_vane_position_ = "Bottom";
       if (this->vertical_vane_select_ != nullptr)
         this->vertical_vane_select_->publish_state(static_cast<size_t>(5));
-      break;
-    case 0x0C:
-      this->vertical_vane_position_ = "Move Full";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
-      break;
-    case 0x14:
-      this->vertical_vane_position_ = "Move Upper";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
-      break;
-    case 0x1C:
-      this->vertical_vane_position_ = "Move Lower";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
       break;
     default:
       ESP_LOGW(TAG, "Unknown vertical vane status: byte[51]=0x%02X", raw);
