@@ -62,6 +62,14 @@ climate::ClimateTraits RotensoClimate::traits() {
       climate::CLIMATE_PRESET_SLEEP,
   });
 
+  // Simple on/off toggle on the climate card itself, alongside the detailed
+  // "Vertical Vane" select. Only OFF/VERTICAL are supported - we only have
+  // confirmed working control for vertical vane movement, not horizontal.
+  traits.set_supported_swing_modes({
+      climate::CLIMATE_SWING_OFF,
+      climate::CLIMATE_SWING_VERTICAL,
+  });
+
   traits.set_visual_min_temperature(16);
   traits.set_visual_max_temperature(31);
   traits.set_visual_temperature_step(0.5);
@@ -80,6 +88,19 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   if (call.get_preset().has_value()) {
     this->preset = *call.get_preset();
+  }
+
+  if (call.get_swing_mode().has_value()) {
+    climate::ClimateSwingMode swing = *call.get_swing_mode();
+    this->swing_mode = swing;
+    // Simple toggle: VERTICAL -> start full sweep, OFF -> stop and clear.
+    // Overrides whatever the detailed select had, matching the intent of
+    // a simple on/off click on the climate card.
+    this->vertical_vane_position_ = (swing == climate::CLIMATE_SWING_VERTICAL) ? "Move Full" : "Off";
+    if (this->vertical_vane_select_ != nullptr) {
+      this->vertical_vane_select_->publish_state(
+          static_cast<size_t>(swing == climate::CLIMATE_SWING_VERTICAL ? 6 : 0));
+    }
   }
 
   RotensoFrameBuilder builder;
@@ -128,11 +149,13 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   ESP_LOGI(TAG, "Vertical vane set to: %s", position.c_str());
 
   this->vertical_vane_position_ = position;
+  this->swing_mode = (index >= 6) ? climate::CLIMATE_SWING_VERTICAL : climate::CLIMATE_SWING_OFF;
 
   if (this->vertical_vane_select_ != nullptr) {
     this->vertical_vane_select_->publish_state(index);
   }
 
+  this->publish_state();
   this->send_current_state_frame_();
 }
 
@@ -171,24 +194,28 @@ void RotensoClimate::publish_vane_state_(uint8_t raw) {
 
   if (mv == 0x01) {
     this->vertical_vane_position_ = "Move Full";
+    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
     return;
   }
   if (mv == 0x02) {
     this->vertical_vane_position_ = "Move Upper";
+    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
     return;
   }
   if (mv == 0x03) {
     this->vertical_vane_position_ = "Move Lower";
+    this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
     if (this->vertical_vane_select_ != nullptr)
       this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
     return;
   }
 
   // mv == 0: fixed position (or fully off)
+  this->swing_mode = climate::CLIMATE_SWING_OFF;
   switch (pos) {
     case 0x00:
       this->vertical_vane_position_ = "Off";
