@@ -21,6 +21,12 @@ class RotensoFrameBuilder {
   // Apply vertical vane position.
   void set_vane_position(const std::string &position);
 
+  // Apply horizontal vane position - byte 33 in the SET frame. UNCONFIRMED:
+  // guessed by analogy with vertical (SET byte 32 -> STATUS byte 51, a +19
+  // offset). Horizontal STATUS is byte 52, so by the same offset SET would
+  // be byte 52-19 = byte 33. Needs a real hardware test to confirm.
+  void set_horizontal_vane_position(const std::string &position);
+
   // Temporary test helpers.
   void set_raw_byte(size_t index, uint8_t value);
 
@@ -47,6 +53,9 @@ class RotensoFrameBuilder {
       const std::string &position);
 
   static bool vane_position_needs_move_bit(
+      const std::string &position);
+
+  static uint8_t horizontal_vane_position_to_byte(
       const std::string &position);
 };
 

@@ -154,6 +154,27 @@ void RotensoFrameBuilder::set_vane_position(
           : "");
 }
 
+uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
+    const std::string &position) {
+  // Confirmed READ mapping: byte[52] Off=0x00, On=0x08. Written here to the
+  // hypothesized SET byte 33 - needs a real hardware test to confirm.
+  if (position == "On")
+    return 0x08;
+
+  return 0x00;
+}
+
+void RotensoFrameBuilder::set_horizontal_vane_position(
+    const std::string &position) {
+  frame_[33] = horizontal_vane_position_to_byte(position);
+
+  ESP_LOGD(
+      TAG,
+      "Horizontal vane position (UNCONFIRMED write): %s -> byte[33]=0x%02X",
+      position.c_str(),
+      frame_[33]);
+}
+
 void RotensoFrameBuilder::set_raw_byte(
     size_t index,
     uint8_t value) {

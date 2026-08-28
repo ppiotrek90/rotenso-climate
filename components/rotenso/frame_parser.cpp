@@ -110,6 +110,7 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
 
     // Vane position
     result.vertical_vane_position_raw = buffer[51];
+    result.horizontal_vane_position_raw = buffer[52];
 
     // Sleep preset
     bool sleep_on = (buffer[19] & 0x01) != 0;
