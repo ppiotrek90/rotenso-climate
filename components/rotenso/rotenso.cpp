@@ -80,8 +80,21 @@ climate::ClimateTraits RotensoClimate::traits() {
 }
 
 void RotensoClimate::control(const climate::ClimateCall &call) {
+  // Snapshot the complete climate state before applying the requested
+  // change. We publish the climate entity only once, and only when at least
+  // one climate field actually changed.
+  auto old_mode = this->mode;
+  auto old_fan_mode = this->fan_mode;
+  auto old_target_temperature = this->target_temperature;
+  auto old_preset = this->preset;
+  auto old_swing_mode = this->swing_mode;
+
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
+  }
+
+  if (call.get_fan_mode().has_value()) {
+    this->fan_mode = *call.get_fan_mode();
   }
 
   if (call.get_target_temperature().has_value()) {
@@ -92,10 +105,8 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     this->preset = *call.get_preset();
   }
 
-  bool swing_changed = false;
   if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing = *call.get_swing_mode();
-    swing_changed = (this->swing_mode != swing);
     this->swing_mode = swing;
 
     // Simple toggle, overrides whatever the detailed selects had, matching
@@ -111,18 +122,22 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
     this->vane_command_sent_at_ = millis();
 
-    this->last_published_vertical_vane_index_ =
+    const size_t vertical_index =
         static_cast<size_t>(want_vertical ? 6 : 0);
-    if (this->vertical_vane_select_ != nullptr) {
-      this->vertical_vane_select_->publish_state(
-          this->last_published_vertical_vane_index_);
+    if (vertical_index != this->last_published_vertical_vane_index_) {
+      this->last_published_vertical_vane_index_ = vertical_index;
+      if (this->vertical_vane_select_ != nullptr) {
+        this->vertical_vane_select_->publish_state(vertical_index);
+      }
     }
 
-    this->last_published_horizontal_vane_index_ =
+    const size_t horizontal_index =
         static_cast<size_t>(want_horizontal ? 6 : 0);
-    if (this->horizontal_vane_select_ != nullptr) {
-      this->horizontal_vane_select_->publish_state(
-          this->last_published_horizontal_vane_index_);
+    if (horizontal_index != this->last_published_horizontal_vane_index_) {
+      this->last_published_horizontal_vane_index_ = horizontal_index;
+      if (this->horizontal_vane_select_ != nullptr) {
+        this->horizontal_vane_select_->publish_state(horizontal_index);
+      }
     }
   }
 
@@ -139,10 +154,17 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   this->write_array(frame.data(), frame.size());
 
-  // Climate card commands do not automatically publish the new swing state.
-  // Publish it immediately so the card reflects the command; the heartbeat
-  // will later reconcile it with the actual AC-reported position.
-  if (swing_changed) {
+  // Publish the climate entity once, only if the requested command actually
+  // changed one of its climate fields. This keeps the climate log/network
+  // traffic quiet when the same value is selected again.
+  const bool climate_changed =
+      old_mode != this->mode ||
+      old_fan_mode != this->fan_mode ||
+      old_target_temperature != this->target_temperature ||
+      old_preset != this->preset ||
+      old_swing_mode != this->swing_mode;
+
+  if (climate_changed) {
     this->publish_state();
   }
 }
@@ -188,16 +210,24 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   const std::string position = positions[index];
   ESP_LOGI(TAG, "Vertical vane set to: %s", position.c_str());
 
+  const auto old_swing_mode = this->swing_mode;
+
   this->vertical_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
-  this->last_published_vertical_vane_index_ = index;
 
-  if (this->vertical_vane_select_ != nullptr) {
-    this->vertical_vane_select_->publish_state(index);
+  if (index != this->last_published_vertical_vane_index_) {
+    this->last_published_vertical_vane_index_ = index;
+    if (this->vertical_vane_select_ != nullptr) {
+      this->vertical_vane_select_->publish_state(index);
+    }
   }
 
-  this->publish_state();
+  // Changing the detailed vane select does not necessarily change the
+  // climate Swing Mode. Publish the climate entity only when it really did.
+  if (old_swing_mode != this->swing_mode) {
+    this->publish_state();
+  }
   this->send_current_state_frame_();
 }
 
@@ -223,16 +253,24 @@ void RotensoClimate::control_horizontal_vane(size_t index) {
   const std::string position = positions[index];
   ESP_LOGI(TAG, "Horizontal vane set to: %s", position.c_str());
 
+  const auto old_swing_mode = this->swing_mode;
+
   this->horizontal_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
-  this->last_published_horizontal_vane_index_ = index;
 
-  if (this->horizontal_vane_select_ != nullptr) {
-    this->horizontal_vane_select_->publish_state(index);
+  if (index != this->last_published_horizontal_vane_index_) {
+    this->last_published_horizontal_vane_index_ = index;
+    if (this->horizontal_vane_select_ != nullptr) {
+      this->horizontal_vane_select_->publish_state(index);
+    }
   }
 
-  this->publish_state();
+  // Changing the detailed vane select does not necessarily change the
+  // climate Swing Mode. Publish the climate entity only when it really did.
+  if (old_swing_mode != this->swing_mode) {
+    this->publish_state();
+  }
   this->send_current_state_frame_();
 }
 
