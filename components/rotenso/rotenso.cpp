@@ -63,8 +63,7 @@ climate::ClimateTraits RotensoClimate::traits() {
   });
 
   // Simple on/off toggle on the climate card itself, alongside the detailed
-  // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
-  // horizontal READ is confirmed, WRITE (byte 33) is an unconfirmed guess.
+  // "Vertical Vane"/"Horizontal Vane" selects. 
   traits.set_supported_swing_modes({
       climate::CLIMATE_SWING_OFF,
       climate::CLIMATE_SWING_VERTICAL,
@@ -585,9 +584,7 @@ void RotensoClimate::parse_uart_response() {
 
   ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
 
-  // Heartbeat/status response:
-  // 61 bytes, command 0x04.
-  //
+  // Heartbeat/status response: 61 bytes, command 0x04.
   // Other frame types are currently ignored.
   if (buffer.size() == 61 && buffer[3] == 0x04) {
     auto parsed = parse_heartbeat(buffer);
@@ -604,11 +601,6 @@ void RotensoClimate::parse_uart_response() {
       this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
       ESP_LOGI(TAG, "Updated climate state from heartbeat");
-
-      ESP_LOGD(
-          TAG,
-          "Vertical vane raw byte[51] = 0x%02X",
-          parsed.vertical_vane_position_raw);
 
       if (this->coil_temperature_sensor_ != nullptr) {
         this->coil_temperature_sensor_->publish_state(
