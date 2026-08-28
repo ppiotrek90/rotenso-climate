@@ -221,7 +221,6 @@ void RotensoClimate::send_current_state_frame_() {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   auto frame = builder.build_frame();
 
