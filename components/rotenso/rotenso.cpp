@@ -92,25 +92,37 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     this->preset = *call.get_preset();
   }
 
+  bool swing_changed = false;
   if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing = *call.get_swing_mode();
+    swing_changed = (this->swing_mode != swing);
     this->swing_mode = swing;
+
     // Simple toggle, overrides whatever the detailed selects had, matching
     // the intent of a simple click on the climate card.
-    bool want_vertical = (swing == climate::CLIMATE_SWING_VERTICAL || swing == climate::CLIMATE_SWING_BOTH);
-    bool want_horizontal = (swing == climate::CLIMATE_SWING_HORIZONTAL || swing == climate::CLIMATE_SWING_BOTH);
+    const bool want_vertical =
+        swing == climate::CLIMATE_SWING_VERTICAL ||
+        swing == climate::CLIMATE_SWING_BOTH;
+    const bool want_horizontal =
+        swing == climate::CLIMATE_SWING_HORIZONTAL ||
+        swing == climate::CLIMATE_SWING_BOTH;
 
     this->vertical_vane_position_ = want_vertical ? "Move Full" : "Off";
     this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
     this->vane_command_sent_at_ = millis();
 
-    this->last_published_vertical_vane_index_ = static_cast<size_t>(want_vertical ? 6 : 0);
+    this->last_published_vertical_vane_index_ =
+        static_cast<size_t>(want_vertical ? 6 : 0);
     if (this->vertical_vane_select_ != nullptr) {
-      this->vertical_vane_select_->publish_state(this->last_published_vertical_vane_index_);
+      this->vertical_vane_select_->publish_state(
+          this->last_published_vertical_vane_index_);
     }
-    this->last_published_horizontal_vane_index_ = static_cast<size_t>(want_horizontal ? 6 : 0);
+
+    this->last_published_horizontal_vane_index_ =
+        static_cast<size_t>(want_horizontal ? 6 : 0);
     if (this->horizontal_vane_select_ != nullptr) {
-      this->horizontal_vane_select_->publish_state(this->last_published_horizontal_vane_index_);
+      this->horizontal_vane_select_->publish_state(
+          this->last_published_horizontal_vane_index_);
     }
   }
 
@@ -126,6 +138,13 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   auto frame = builder.build_frame();
 
   this->write_array(frame.data(), frame.size());
+
+  // Climate card commands do not automatically publish the new swing state.
+  // Publish it immediately so the card reflects the command; the heartbeat
+  // will later reconcile it with the actual AC-reported position.
+  if (swing_changed) {
+    this->publish_state();
+  }
 }
 
 void RotensoVerticalVaneSelect::control(size_t index) {
@@ -628,7 +647,7 @@ void RotensoClimate::parse_uart_response() {
           old_swing_mode != this->swing_mode;
 
       if (climate_changed) {
-        ESP_LOGI(TAG, "Climate state changed from heartbeat");
+        ESP_LOGD(TAG, "Climate state changed from heartbeat");
         this->publish_state();
       }
 

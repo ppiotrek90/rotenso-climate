@@ -95,6 +95,9 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
 
+  // Extra sensors are published only when their value changes. The first
+  // valid heartbeat publishes the initial value. DEBUG logging remains
+  // available on every heartbeat without increasing network traffic.
   bool has_published_coil_temperature_{false};
   float last_published_coil_temperature_{0.0f};
   bool has_published_room_temperature_{false};
