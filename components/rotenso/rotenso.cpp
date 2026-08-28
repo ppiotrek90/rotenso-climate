@@ -8,6 +8,19 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
 
+void RotensoClimate::write_frame_(const uint8_t *frame, size_t size) {
+  std::string log_line;
+  char byte_str[6];
+
+  for (size_t i = 0; i < size; i++) {
+    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+    log_line += byte_str;
+  }
+
+  ESP_LOGD(TAG, "UART frame (TX): %s", log_line.c_str());
+  this->write_array(frame, size);
+}
+
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
 
@@ -152,7 +165,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   auto frame = builder.build_frame();
 
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 
   // Publish the climate entity once, only if the requested command actually
   // changed one of its climate fields. This keeps the climate log/network
@@ -281,20 +294,10 @@ void RotensoClimate::send_current_state_frame_() {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
 
   auto frame = builder.build_frame();
 
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < frame.size(); i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGD(TAG, "VANE FRAME: %s", log_line.c_str());
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 }
 
 void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
@@ -488,7 +491,7 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
       value,
       log_line.c_str());
 
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
@@ -522,7 +525,7 @@ void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
       value2,
       log_line.c_str());
 
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
@@ -552,7 +555,7 @@ void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
       bits,
       log_line.c_str());
 
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame_or2(
@@ -589,7 +592,7 @@ void RotensoClimate::send_test_frame_or2(
       bits2,
       log_line.c_str());
 
-  this->write_array(frame.data(), frame.size());
+  this->write_frame_(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_heartbeat() {
@@ -599,9 +602,7 @@ void RotensoClimate::send_heartbeat() {
       0xBB, 0x00, 0x01, 0x04,
       0x02, 0x01, 0x00, 0xBD};
 
-  this->write_array(
-      heartbeat_packet,
-      sizeof(heartbeat_packet));
+  this->write_frame_(heartbeat_packet, sizeof(heartbeat_packet));
 
   this->flush();
 
@@ -639,7 +640,7 @@ void RotensoClimate::parse_uart_response() {
     log_line += byte_str;
   }
 
-  ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
+  ESP_LOGD(TAG, "UART response (RX): %s", log_line.c_str());
 
   // Heartbeat/status response: 61 bytes, command 0x04.
   // Other frame types are currently ignored.

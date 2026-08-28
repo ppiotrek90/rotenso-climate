@@ -75,6 +75,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void parse_uart_response();
 
   void send_current_state_frame_();
+  void write_frame_(const uint8_t *frame, size_t size);
   void publish_vertical_vane_state_(uint8_t raw);
   void publish_horizontal_vane_state_(uint8_t raw);
   void update_swing_mode_();
