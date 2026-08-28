@@ -63,7 +63,8 @@ climate::ClimateTraits RotensoClimate::traits() {
   });
 
   // Simple on/off toggle on the climate card itself, alongside the detailed
-  // "Vertical Vane"/"Horizontal Vane" selects. 
+  // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
+  // horizontal READ is confirmed, WRITE (byte 33) is an unconfirmed guess.
   traits.set_supported_swing_modes({
       climate::CLIMATE_SWING_OFF,
       climate::CLIMATE_SWING_VERTICAL,
@@ -103,11 +104,13 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
     this->vane_command_sent_at_ = millis();
 
+    this->last_published_vertical_vane_index_ = static_cast<size_t>(want_vertical ? 6 : 0);
     if (this->vertical_vane_select_ != nullptr) {
-      this->vertical_vane_select_->publish_state(static_cast<size_t>(want_vertical ? 6 : 0));
+      this->vertical_vane_select_->publish_state(this->last_published_vertical_vane_index_);
     }
+    this->last_published_horizontal_vane_index_ = static_cast<size_t>(want_horizontal ? 6 : 0);
     if (this->horizontal_vane_select_ != nullptr) {
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(want_horizontal ? 6 : 0));
+      this->horizontal_vane_select_->publish_state(this->last_published_horizontal_vane_index_);
     }
   }
 
@@ -169,6 +172,7 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   this->vertical_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
+  this->last_published_vertical_vane_index_ = index;
 
   if (this->vertical_vane_select_ != nullptr) {
     this->vertical_vane_select_->publish_state(index);
@@ -203,6 +207,7 @@ void RotensoClimate::control_horizontal_vane(size_t index) {
   this->horizontal_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
+  this->last_published_horizontal_vane_index_ = index;
 
   if (this->horizontal_vane_select_ != nullptr) {
     this->horizontal_vane_select_->publish_state(index);
@@ -255,67 +260,61 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
   uint8_t mv = (raw >> 3) & 0x03;
   uint8_t pos = raw & 0x07;
 
+  std::string position;
+  size_t index;
+
   if (mv == 0x01) {
-    this->vertical_vane_position_ = "Move Full";
-    if (this->vertical_vane_select_ != nullptr)
-      this->vertical_vane_select_->publish_state(static_cast<size_t>(6));
-    this->update_swing_mode_();
-    return;
-  }
-  if (mv == 0x02) {
-    this->vertical_vane_position_ = "Move Upper";
-    if (this->vertical_vane_select_ != nullptr)
-      this->vertical_vane_select_->publish_state(static_cast<size_t>(7));
-    this->update_swing_mode_();
-    return;
-  }
-  if (mv == 0x03) {
-    this->vertical_vane_position_ = "Move Lower";
-    if (this->vertical_vane_select_ != nullptr)
-      this->vertical_vane_select_->publish_state(static_cast<size_t>(8));
-    this->update_swing_mode_();
-    return;
+    position = "Move Full";
+    index = 6;
+  } else if (mv == 0x02) {
+    position = "Move Upper";
+    index = 7;
+  } else if (mv == 0x03) {
+    position = "Move Lower";
+    index = 8;
+  } else {
+    // mv == 0: fixed position (or fully off)
+    switch (pos) {
+      case 0x00:
+        position = "Off";
+        index = 0;
+        break;
+      case 0x01:
+        position = "Top";
+        index = 1;
+        break;
+      case 0x02:
+        position = "Upper";
+        index = 2;
+        break;
+      case 0x03:
+        position = "Mid";
+        index = 3;
+        break;
+      case 0x04:
+        position = "Lower";
+        index = 4;
+        break;
+      case 0x05:
+        position = "Bottom";
+        index = 5;
+        break;
+      default:
+        ESP_LOGW(TAG, "Unknown vertical vane status: byte[51]=0x%02X", raw);
+        position = "Unknown";
+        index = 9;
+        break;
+    }
   }
 
-  // mv == 0: fixed position (or fully off)
-  switch (pos) {
-    case 0x00:
-      this->vertical_vane_position_ = "Off";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(0));
-      break;
-    case 0x01:
-      this->vertical_vane_position_ = "Top";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(1));
-      break;
-    case 0x02:
-      this->vertical_vane_position_ = "Upper";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(2));
-      break;
-    case 0x03:
-      this->vertical_vane_position_ = "Mid";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(3));
-      break;
-    case 0x04:
-      this->vertical_vane_position_ = "Lower";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(4));
-      break;
-    case 0x05:
-      this->vertical_vane_position_ = "Bottom";
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(5));
-      break;
-    default:
-      ESP_LOGW(TAG, "Unknown vertical vane status: byte[51]=0x%02X", raw);
-      if (this->vertical_vane_select_ != nullptr)
-        this->vertical_vane_select_->publish_state(static_cast<size_t>(9));
-      break;
-  }
+  this->vertical_vane_position_ = position;
   this->update_swing_mode_();
+
+  if (index != this->last_published_vertical_vane_index_) {
+    this->last_published_vertical_vane_index_ = index;
+    if (this->vertical_vane_select_ != nullptr)
+      this->vertical_vane_select_->publish_state(index);
+  }
 }
 
 void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
@@ -331,62 +330,63 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
   uint8_t mv = (raw >> 3) & 0x07;
   uint8_t pos = raw & 0x07;
 
+  std::string position;
+  size_t index;
+
   if (mv == 0x01) {
-    this->horizontal_vane_position_ = "Move Full";
-    if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(6));
+    position = "Move Full";
+    index = 6;
   } else if (mv == 0x02) {
-    this->horizontal_vane_position_ = "Move Left";
-    if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(7));
+    position = "Move Left";
+    index = 7;
   } else if (mv == 0x03) {
-    this->horizontal_vane_position_ = "Move Mid";
-    if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(8));
+    position = "Move Mid";
+    index = 8;
   } else if (mv == 0x04) {
-    this->horizontal_vane_position_ = "Move Right";
-    if (this->horizontal_vane_select_ != nullptr)
-      this->horizontal_vane_select_->publish_state(static_cast<size_t>(9));
+    position = "Move Right";
+    index = 9;
   } else {
     switch (pos) {
       case 0x00:
-        this->horizontal_vane_position_ = "Off";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(0));
+        position = "Off";
+        index = 0;
         break;
       case 0x01:
-        this->horizontal_vane_position_ = "Left";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(1));
+        position = "Left";
+        index = 1;
         break;
       case 0x02:
-        this->horizontal_vane_position_ = "Mid-left";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(2));
+        position = "Mid-left";
+        index = 2;
         break;
       case 0x03:
-        this->horizontal_vane_position_ = "Mid";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(3));
+        position = "Mid";
+        index = 3;
         break;
       case 0x04:
-        this->horizontal_vane_position_ = "Mid-right";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(4));
+        position = "Mid-right";
+        index = 4;
         break;
       case 0x05:
-        this->horizontal_vane_position_ = "Right";
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(5));
+        position = "Right";
+        index = 5;
         break;
       default:
         ESP_LOGW(TAG, "Unknown horizontal vane status: byte[52]=0x%02X", raw);
-        if (this->horizontal_vane_select_ != nullptr)
-          this->horizontal_vane_select_->publish_state(static_cast<size_t>(10));
+        position = "Unknown";
+        index = 10;
         break;
     }
   }
+
+  this->horizontal_vane_position_ = position;
   this->update_swing_mode_();
+
+  if (index != this->last_published_horizontal_vane_index_) {
+    this->last_published_horizontal_vane_index_ = index;
+    if (this->horizontal_vane_select_ != nullptr)
+      this->horizontal_vane_select_->publish_state(index);
+  }
 }
 
 void RotensoClimate::update_swing_mode_() {
@@ -590,6 +590,13 @@ void RotensoClimate::parse_uart_response() {
     auto parsed = parse_heartbeat(buffer);
 
     if (parsed.valid) {
+      climate::ClimateMode old_mode = this->mode;
+      climate::ClimateFanMode old_fan_mode = this->fan_mode;
+      float old_target_temperature = this->target_temperature;
+      float old_current_temperature = this->current_temperature;
+      climate::ClimatePreset old_preset = this->preset;
+      climate::ClimateSwingMode old_swing_mode = this->swing_mode;
+
       this->mode = parsed.mode;
       this->fan_mode = parsed.fan_mode;
       this->target_temperature = parsed.temperature;
@@ -622,7 +629,17 @@ void RotensoClimate::parse_uart_response() {
             parsed.anti_mildew);
       }
 
-      this->publish_state();
+      bool changed =
+          old_mode != this->mode ||
+          old_fan_mode != this->fan_mode ||
+          old_target_temperature != this->target_temperature ||
+          old_current_temperature != this->current_temperature ||
+          old_preset != this->preset ||
+          old_swing_mode != this->swing_mode;
+
+      if (changed) {
+        this->publish_state();
+      }
     }
   }
 }
