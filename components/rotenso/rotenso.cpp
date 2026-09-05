@@ -91,11 +91,12 @@ climate::ClimateTraits RotensoClimate::traits() {
 void RotensoClimate::control(const climate::ClimateCall &call) {
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
+    this->climate_command_sent_at_ = millis();
   }
 
   if (call.get_target_temperature().has_value()) {
     this->target_temperature = *call.get_target_temperature();
-    this->temperature_command_sent_at_ = millis();
+    this->climate_command_sent_at_ = millis();
   }
 
   if (call.get_preset().has_value()) {
@@ -139,6 +140,15 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   auto frame = builder.build_frame();
 
   this->write_array(frame.data(), frame.size());
+
+  // CRITICAL: without this, HA never finds out about a change WE just
+  // made until the next heartbeat happens to detect a difference on its
+  // own - and since mode/temperature are now debounced from the STATUS
+  // read for a couple seconds (to avoid the AC's own lag reverting them),
+  // the heartbeat's diff-check can't "see" a change we already applied
+  // locally the moment this function ran. This publish_state() is what
+  // actually pushes our own, immediate change to HA's climate card.
+  this->publish_state();
 }
 
 void RotensoVerticalVaneSelect::control(size_t index) {
@@ -689,16 +699,16 @@ void RotensoClimate::parse_uart_response() {
       optional<climate::ClimatePreset> old_preset = this->preset;
       climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
-      this->mode = parsed.mode;
-      this->fan_mode = parsed.fan_mode;
-      // Sync from STATUS normally, but ignore it for a short window right
-      // after we ourselves changed it - the AC needs a moment to actually
-      // process a new target temperature, so a heartbeat arriving in that
-      // window may still report the OLD value and would otherwise revert
-      // the user's own just-made choice.
-      if (millis() - this->temperature_command_sent_at_ >= 2000) {
+      // Sync mode/target_temperature from STATUS normally, but ignore it
+      // for a short window right after we ourselves changed either - the
+      // AC needs a moment to actually process a new mode/temperature, so
+      // a heartbeat arriving in that window may still report the OLD
+      // value and would otherwise revert the user's own just-made choice.
+      if (millis() - this->climate_command_sent_at_ >= 2000) {
+        this->mode = parsed.mode;
         this->target_temperature = parsed.temperature;
       }
+      this->fan_mode = parsed.fan_mode;
       this->current_temperature = parsed.current_temperature;
       // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
       // That READ-side decode (state_nibble in the STATUS frame) was never
