@@ -105,12 +105,6 @@ void RotensoFrameBuilder::from_climate_state(
     frame_[7] |= 0x80;
   }
 
-  // "Turbo" custom preset (manufacturer's own name for this, confirmed via
-  // real capture as "Turbo Fan") - byte[8] bit 0x40.
-  if (climate->custom_preset.has_value() && *climate->custom_preset == "Turbo") {
-    frame_[8] |= 0x40;
-  }
-
   // Sleep preset
   frame_[19] =
       (preset == climate::CLIMATE_PRESET_SLEEP)
@@ -282,6 +276,12 @@ uint8_t RotensoFrameBuilder::encode_mode_preset(
       // from_climate_state()), so this case intentionally does nothing
       // to byte[8] anymore.
       preset_val = 0x0;
+      break;
+
+    case climate::CLIMATE_PRESET_BOOST:
+      // Confirmed via real Tuya capture as "Turbo Fan" - same bit, just
+      // using the standard preset name/mechanism rather than a custom one.
+      preset_val = 0x4;
       break;
 
     case climate::CLIMATE_PRESET_COMFORT:

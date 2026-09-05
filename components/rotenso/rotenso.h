@@ -83,7 +83,10 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void control_vertical_vane(size_t index);
   void control_horizontal_vane(size_t index);
 
-  void send_test_frame(uint8_t byte_index, uint8_t value);.
+  void send_test_frame(uint8_t byte_index, uint8_t value);
+  // REPLACES (not ORs) TWO bytes in the same frame - needed when one byte
+  // must be explicitly cleared (e.g. byte[11]'s always-on temperature bit)
+  // while another is set at the same time (e.g. byte[33]).
   void send_test_frame2(uint8_t byte_index1, uint8_t value1,
                         uint8_t byte_index2, uint8_t value2);
   void send_test_frame_or(uint8_t byte_index, uint8_t bits);
@@ -128,6 +131,11 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   std::string horizontal_vane_position_{"Off"};
   select::Select *horizontal_vane_select_{nullptr};
   size_t last_published_horizontal_vane_index_{99};
+  // millis() timestamp of the last vane command we sent. A heartbeat
+  // response arriving shortly after may still be answering the PREVIOUS
+  // heartbeat request (sent before our command), so its vane byte would
+  // be stale - we ignore vane updates within this window and let the
+  // next real heartbeat (after the round trip settles) confirm it.
   uint32_t vane_command_sent_at_{0};
 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
@@ -137,6 +145,8 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
   switch_::Switch *anti_mildew_switch_{nullptr};
+  // Sticky like the vane positions: kept across other Climate parameter
+  // changes so a temperature/mode adjustment doesn't accidentally clear it.
   bool anti_mildew_desired_{false};
   switch_::Switch *buzzer_switch_{nullptr};
   bool buzzer_desired_{true};

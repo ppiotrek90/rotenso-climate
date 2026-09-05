@@ -67,13 +67,9 @@ climate::ClimateTraits RotensoClimate::traits() {
   traits.set_supported_presets({
       climate::CLIMATE_PRESET_NONE,
       climate::CLIMATE_PRESET_ECO,
+      climate::CLIMATE_PRESET_BOOST,
       climate::CLIMATE_PRESET_SLEEP,
   });
-
-  // "Turbo Fan" is what the manufacturer's own Tuya module calls this
-  // (confirmed: byte[8] bit 0x40) - using a custom preset instead of the
-  // standard BOOST enum so it's actually labeled "Turbo" in the UI.
-  traits.set_supported_custom_presets({"Turbo"});
 
   // Simple on/off toggle on the climate card itself, alongside the detailed
   // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
@@ -103,12 +99,6 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   if (call.get_preset().has_value()) {
     this->preset = *call.get_preset();
-    this->custom_preset = {};
-  }
-
-  if (call.get_custom_preset().has_value()) {
-    this->custom_preset = *call.get_custom_preset();
-    this->preset = climate::CLIMATE_PRESET_NONE;
   }
 
   if (call.get_swing_mode().has_value()) {
@@ -683,15 +673,19 @@ void RotensoClimate::parse_uart_response() {
 
   ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
 
+  // Heartbeat/status response:
+  // 61 bytes, command 0x04.
+  //
+  // Other frame types are currently ignored.
   if (buffer.size() == 61 && buffer[3] == 0x04) {
     auto parsed = parse_heartbeat(buffer);
 
     if (parsed.valid) {
       climate::ClimateMode old_mode = this->mode;
-      climate::ClimateFanMode old_fan_mode = this->fan_mode;
+      optional<climate::ClimateFanMode> old_fan_mode = this->fan_mode;
       float old_target_temperature = this->target_temperature;
       float old_current_temperature = this->current_temperature;
-      climate::ClimatePreset old_preset = this->preset;
+      optional<climate::ClimatePreset> old_preset = this->preset;
       climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
       this->mode = parsed.mode;
@@ -700,6 +694,7 @@ void RotensoClimate::parse_uart_response() {
       this->current_temperature = parsed.current_temperature;
       this->preset = parsed.preset;
 
+      // byte[51] is the reported vertical vane position.
       this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
       this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
@@ -725,6 +720,14 @@ void RotensoClimate::parse_uart_response() {
             parsed.anti_mildew);
       }
 
+      // NOTE: unlike vane position, anti-mildew's STATUS bit appears to be
+      // a real-time "actively self-cleaning right now" indicator, not a
+      // stable mirror of the user's persistent setting - it goes OFF on
+      // its own while the AC is just running normally. So we do NOT sync
+      // anti_mildew_desired_ from it (that would silently cancel the
+      // user's request on the very next heartbeat). The switch always
+      // reflects what we last commanded; the binary_sensor above shows
+      // the AC's real-time activity.
 
       bool changed =
           old_mode != this->mode ||
