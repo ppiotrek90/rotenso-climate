@@ -690,7 +690,12 @@ void RotensoClimate::parse_uart_response() {
 
       this->mode = parsed.mode;
       this->fan_mode = parsed.fan_mode;
-      this->target_temperature = parsed.temperature;
+      // NOTE: deliberately NOT syncing this->target_temperature from
+      // parsed.temperature - same class of bug as preset/anti-mildew: if
+      // the AC's STATUS echo lags or rounds differently than what we just
+      // sent, this would silently revert the user's own choice on the very
+      // next heartbeat. target_temperature is now sticky/software-owned,
+      // only changed via control().
       this->current_temperature = parsed.current_temperature;
       // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
       // That READ-side decode (state_nibble in the STATUS frame) was never
