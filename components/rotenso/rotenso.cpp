@@ -692,7 +692,14 @@ void RotensoClimate::parse_uart_response() {
       this->fan_mode = parsed.fan_mode;
       this->target_temperature = parsed.temperature;
       this->current_temperature = parsed.current_temperature;
-      this->preset = parsed.preset;
+      // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
+      // That READ-side decode (state_nibble in the STATUS frame) was never
+      // independently confirmed and appears unreliable specifically for
+      // ECO - it kept reporting ECO even after we sent the confirmed OFF
+      // bit, silently reverting the user's own choice on the very next
+      // heartbeat (the exact same bug we already fixed for anti-mildew).
+      // preset is now purely a sticky, software-owned value like the vane
+      // positions/anti-mildew/buzzer/display - only changed via control().
 
       // byte[51] is the reported vertical vane position.
       this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
