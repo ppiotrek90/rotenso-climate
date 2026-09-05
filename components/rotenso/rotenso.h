@@ -145,6 +145,13 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   // window after our own command, then trust it again normally.
   uint32_t climate_command_sent_at_{0};
 
+  // Set on an OFF->ON transition; consumed once by the next successful
+  // heartbeat parse to adopt the AC's freshly-reported anti-mildew state
+  // instead of blindly re-asserting our own last-commanded value (the AC
+  // may have reset it across the power cycle, or the physical remote may
+  // have been used while it was off).
+  bool adopt_status_after_power_on_{false};
+
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
   sensor::Sensor *coil_temperature_sensor_{nullptr};

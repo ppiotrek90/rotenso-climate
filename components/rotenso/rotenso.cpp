@@ -89,6 +89,22 @@ climate::ClimateTraits RotensoClimate::traits() {
 }
 
 void RotensoClimate::control(const climate::ClimateCall &call) {
+  bool turning_on =
+      this->mode == climate::CLIMATE_MODE_OFF &&
+      call.get_mode().has_value() &&
+      *call.get_mode() != climate::CLIMATE_MODE_OFF;
+
+  if (turning_on) {
+    // On power-on, trust the AC's own next reported state for settings we
+    // otherwise treat as sticky/software-owned (like anti-mildew) rather
+    // than blindly re-asserting whatever we last commanded - the AC may
+    // have reset something on its own across the power cycle, or the user
+    // may have changed something via the physical remote while it was off.
+    // The next successful heartbeat parse adopts the fresh reading once,
+    // then goes back to normal sticky behavior.
+    this->adopt_status_after_power_on_ = true;
+  }
+
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
     this->climate_command_sent_at_ = millis();
@@ -762,6 +778,17 @@ void RotensoClimate::parse_uart_response() {
       // user's request on the very next heartbeat). anti_mildew_desired_
       // keeps driving what we send; only the switch's displayed state
       // (above) follows the AC's real-time activity.
+      //
+      // EXCEPTION: right after an OFF->ON power transition, adopt this
+      // reading once as our new desired_ baseline instead - the AC may
+      // have reset anti-mildew across the power cycle, or the physical
+      // remote may have changed it while the AC was off, and we want our
+      // sticky value to reflect reality at that point rather than fight it.
+      if (this->adopt_status_after_power_on_) {
+        this->adopt_status_after_power_on_ = false;
+        this->anti_mildew_desired_ = parsed.anti_mildew;
+        ESP_LOGI(TAG, "Adopted anti-mildew=%s from AC after power-on", parsed.anti_mildew ? "On" : "Off");
+      }
 
       bool changed =
           old_mode != this->mode ||
