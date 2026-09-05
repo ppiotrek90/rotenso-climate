@@ -37,11 +37,6 @@ class RotensoFrameBuilder {
   // hardware (captured from the genuine Tuya module's own traffic).
   void set_display(bool enabled);
 
-  // Temporary test helpers.
-  void set_raw_byte(size_t index, uint8_t value);
-
-  void or_raw_byte(size_t index, uint8_t bits);
-
   std::array<uint8_t, FRAME_LENGTH> build_frame();
 
  private:

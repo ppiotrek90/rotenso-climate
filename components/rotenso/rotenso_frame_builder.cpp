@@ -43,7 +43,7 @@ RotensoFrameBuilder::RotensoFrameBuilder() {
       0x21,  // 4
       0x00,  // 5
       0x00,  // 6
-      0x60,  // 7 - Power OFF by default
+      0x00,  // 7 - Power / Buzzer / Display / ECO bits are applied explicitly
       0x00,  // 8 - Preset + Mode
       0x18,  // 9 - Temperature placeholder
       0x00,  // 10 - Fan / Move bits
@@ -216,21 +216,6 @@ void RotensoFrameBuilder::set_horizontal_vane_position(
       frame_[11]);
 }
 
-void RotensoFrameBuilder::set_raw_byte(
-    size_t index,
-    uint8_t value) {
-  if (index < FRAME_LENGTH - 1) {
-    frame_[index] = value;
-  }
-}
-
-void RotensoFrameBuilder::or_raw_byte(
-    size_t index,
-    uint8_t bits) {
-  if (index < FRAME_LENGTH - 1) {
-    frame_[index] |= bits;
-  }
-}
 
 uint8_t RotensoFrameBuilder::encode_power(
     bool power) {

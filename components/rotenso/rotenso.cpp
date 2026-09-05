@@ -11,14 +11,10 @@ static const char *const TAG = "rotenso.climate";
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
 
-  // Reflect the defaults in the UI right away, rather than waiting for the
-  // first time the user toggles them (they're already what we're sending).
-  if (this->buzzer_switch_ != nullptr) {
-    this->buzzer_switch_->publish_state(this->buzzer_desired_);
-  }
-  if (this->display_switch_ != nullptr) {
-    this->display_switch_->publish_state(this->display_desired_);
-  }
+  // Do not assume defaults for optional AC features. The physical remote can
+  // change them while ESPHome is offline, so the first thing we do is request
+  // a fresh status from the indoor unit.
+  this->send_heartbeat();
 
   this->set_interval("heartbeat", 3000, [this]() {
     this->send_heartbeat();
@@ -89,22 +85,6 @@ climate::ClimateTraits RotensoClimate::traits() {
 }
 
 void RotensoClimate::control(const climate::ClimateCall &call) {
-  bool turning_on =
-      this->mode == climate::CLIMATE_MODE_OFF &&
-      call.get_mode().has_value() &&
-      *call.get_mode() != climate::CLIMATE_MODE_OFF;
-
-  if (turning_on) {
-    // On power-on, trust the AC's own next reported state for settings we
-    // otherwise treat as sticky/software-owned (like anti-mildew) rather
-    // than blindly re-asserting whatever we last commanded - the AC may
-    // have reset something on its own across the power cycle, or the user
-    // may have changed something via the physical remote while it was off.
-    // The next successful heartbeat parse adopts the fresh reading once,
-    // then goes back to normal sticky behavior.
-    this->adopt_status_after_power_on_ = true;
-  }
-
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
     this->climate_command_sent_at_ = millis();
@@ -149,9 +129,15 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   // Climate parameter is changed.
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
+  if (this->anti_mildew_state_valid_) {
+    builder.set_anti_mildew(this->anti_mildew_state_);
+  }
+  if (this->buzzer_state_valid_) {
+    builder.set_buzzer(this->buzzer_state_);
+  }
+  if (this->display_state_valid_) {
+    builder.set_display(this->display_state_);
+  }
 
   auto frame = builder.build_frame();
 
@@ -197,7 +183,8 @@ void RotensoAntiMildewSwitch::write_state(bool state) {
 void RotensoClimate::control_anti_mildew(bool state) {
   ESP_LOGI(TAG, "Anti-mildew set to: %s", state ? "On" : "Off");
 
-  this->anti_mildew_desired_ = state;
+  this->anti_mildew_state_ = state;
+  this->anti_mildew_state_valid_ = true;
 
   if (this->anti_mildew_switch_ != nullptr) {
     this->anti_mildew_switch_->publish_state(state);
@@ -218,7 +205,8 @@ void RotensoBuzzerSwitch::write_state(bool state) {
 void RotensoClimate::control_buzzer(bool state) {
   ESP_LOGI(TAG, "Buzzer set to: %s", state ? "On" : "Off");
 
-  this->buzzer_desired_ = state;
+  this->buzzer_state_ = state;
+  this->buzzer_state_valid_ = true;
 
   if (this->buzzer_switch_ != nullptr) {
     this->buzzer_switch_->publish_state(state);
@@ -239,7 +227,8 @@ void RotensoDisplaySwitch::write_state(bool state) {
 void RotensoClimate::control_display(bool state) {
   ESP_LOGI(TAG, "Display set to: %s", state ? "On" : "Off");
 
-  this->display_desired_ = state;
+  this->display_state_ = state;
+  this->display_state_valid_ = true;
 
   if (this->display_switch_ != nullptr) {
     this->display_switch_->publish_state(state);
@@ -326,9 +315,15 @@ void RotensoClimate::send_current_state_frame_() {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
+  if (this->anti_mildew_state_valid_) {
+    builder.set_anti_mildew(this->anti_mildew_state_);
+  }
+  if (this->buzzer_state_valid_) {
+    builder.set_buzzer(this->buzzer_state_);
+  }
+  if (this->display_state_valid_) {
+    builder.set_display(this->display_state_);
+  }
 
   auto frame = builder.build_frame();
 
@@ -508,149 +503,6 @@ void RotensoClimate::update_swing_mode_() {
   }
 }
 
-void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
-  climate::ClimateCall call = this->make_call();
-
-  RotensoFrameBuilder builder;
-  builder.from_climate_state(this, call);
-  builder.set_vertical_vane_position(this->vertical_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
-
-  builder.set_raw_byte(byte_index, value);
-
-  auto frame = builder.build_frame();
-
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < frame.size(); i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGW(
-      TAG,
-      "TEST FRAME (byte[%d]=0x%02X): %s",
-      byte_index,
-      value,
-      log_line.c_str());
-
-  this->write_array(frame.data(), frame.size());
-}
-
-void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
-                                       uint8_t byte_index2, uint8_t value2) {
-  climate::ClimateCall call = this->make_call();
-
-  RotensoFrameBuilder builder;
-  builder.from_climate_state(this, call);
-  builder.set_vertical_vane_position(this->vertical_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
-
-  builder.set_raw_byte(byte_index1, value1);
-  builder.set_raw_byte(byte_index2, value2);
-
-  auto frame = builder.build_frame();
-
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < frame.size(); i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGW(
-      TAG,
-      "TEST FRAME2 (byte[%d]=0x%02X, byte[%d]=0x%02X): %s",
-      byte_index1,
-      value1,
-      byte_index2,
-      value2,
-      log_line.c_str());
-
-  this->write_array(frame.data(), frame.size());
-}
-
-void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
-  climate::ClimateCall call = this->make_call();
-
-  RotensoFrameBuilder builder;
-  builder.from_climate_state(this, call);
-  builder.set_vertical_vane_position(this->vertical_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
-
-  builder.or_raw_byte(byte_index, bits);
-
-  auto frame = builder.build_frame();
-
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < frame.size(); i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGW(
-      TAG,
-      "TEST FRAME OR (byte[%d]|=0x%02X): %s",
-      byte_index,
-      bits,
-      log_line.c_str());
-
-  this->write_array(frame.data(), frame.size());
-}
-
-void RotensoClimate::send_test_frame_or2(
-    uint8_t byte_index1,
-    uint8_t bits1,
-    uint8_t byte_index2,
-    uint8_t bits2) {
-  climate::ClimateCall call = this->make_call();
-
-  RotensoFrameBuilder builder;
-  builder.from_climate_state(this, call);
-  builder.set_vertical_vane_position(this->vertical_vane_position_);
-  builder.set_horizontal_vane_position(this->horizontal_vane_position_);
-  builder.set_anti_mildew(this->anti_mildew_desired_);
-  builder.set_buzzer(this->buzzer_desired_);
-  builder.set_display(this->display_desired_);
-
-  builder.or_raw_byte(byte_index1, bits1);
-  builder.or_raw_byte(byte_index2, bits2);
-
-  auto frame = builder.build_frame();
-
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < frame.size(); i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGW(
-      TAG,
-      "TEST FRAME OR2 (byte[%d]|=0x%02X, byte[%d]|=0x%02X): %s",
-      byte_index1,
-      bits1,
-      byte_index2,
-      bits2,
-      log_line.c_str());
-
-  this->write_array(frame.data(), frame.size());
-}
-
 void RotensoClimate::send_heartbeat() {
   ESP_LOGD(TAG, "Sending UART heartbeat");
 
@@ -761,33 +613,20 @@ void RotensoClimate::parse_uart_response() {
             parsed.anti_mildew);
       }
 
-      // Show the AC's real, heartbeat-reported state on the switch itself
-      // (per user request), separate from anti_mildew_desired_ below - that
-      // stays sticky/unaffected and keeps driving what we actually SEND, so
-      // this display-only sync can't cancel the user's request the way
-      // syncing anti_mildew_desired_ itself would.
-      if (this->anti_mildew_switch_ != nullptr) {
-        this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
-      }
-
-      // NOTE: unlike vane position, anti-mildew's STATUS bit appears to be
-      // a real-time "actively self-cleaning right now" indicator, not a
-      // stable mirror of the user's persistent setting - it goes OFF on
-      // its own while the AC is just running normally. So we do NOT sync
-      // anti_mildew_desired_ from it (that would silently cancel the
-      // user's request on the very next heartbeat). anti_mildew_desired_
-      // keeps driving what we send; only the switch's displayed state
-      // (above) follows the AC's real-time activity.
-      //
-      // EXCEPTION: right after an OFF->ON power transition, adopt this
-      // reading once as our new desired_ baseline instead - the AC may
-      // have reset anti-mildew across the power cycle, or the physical
-      // remote may have changed it while the AC was off, and we want our
-      // sticky value to reflect reality at that point rather than fight it.
-      if (this->adopt_status_after_power_on_) {
-        this->adopt_status_after_power_on_ = false;
-        this->anti_mildew_desired_ = parsed.anti_mildew;
-        ESP_LOGI(TAG, "Adopted anti-mildew=%s from AC after power-on", parsed.anti_mildew ? "On" : "Off");
+      // Anti-mildew has a confirmed RX status bit (byte[9] bit 0x08).
+      // Use the first valid heartbeat to initialize the switch from the AC
+      // instead of inventing a default. During normal operation the same bit
+      // can represent the currently active self-drying process, so it is also
+      // exposed separately through the binary sensor and must not overwrite
+      // the user's persistent command on every heartbeat.
+      if (!this->anti_mildew_state_valid_) {
+        this->anti_mildew_state_ = parsed.anti_mildew;
+        this->anti_mildew_state_valid_ = true;
+        if (this->anti_mildew_switch_ != nullptr) {
+          this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
+        }
+        ESP_LOGI(TAG, "Initialized anti-mildew from AC: %s",
+                 parsed.anti_mildew ? "On" : "Off");
       }
 
       bool changed =
