@@ -95,6 +95,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   if (call.get_target_temperature().has_value()) {
     this->target_temperature = *call.get_target_temperature();
+    this->temperature_command_sent_at_ = millis();
   }
 
   if (call.get_preset().has_value()) {
@@ -690,12 +691,14 @@ void RotensoClimate::parse_uart_response() {
 
       this->mode = parsed.mode;
       this->fan_mode = parsed.fan_mode;
-      // NOTE: deliberately NOT syncing this->target_temperature from
-      // parsed.temperature - same class of bug as preset/anti-mildew: if
-      // the AC's STATUS echo lags or rounds differently than what we just
-      // sent, this would silently revert the user's own choice on the very
-      // next heartbeat. target_temperature is now sticky/software-owned,
-      // only changed via control().
+      // Sync from STATUS normally, but ignore it for a short window right
+      // after we ourselves changed it - the AC needs a moment to actually
+      // process a new target temperature, so a heartbeat arriving in that
+      // window may still report the OLD value and would otherwise revert
+      // the user's own just-made choice.
+      if (millis() - this->temperature_command_sent_at_ >= 2000) {
+        this->target_temperature = parsed.temperature;
+      }
       this->current_temperature = parsed.current_temperature;
       // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
       // That READ-side decode (state_nibble in the STATUS frame) was never
@@ -732,14 +735,23 @@ void RotensoClimate::parse_uart_response() {
             parsed.anti_mildew);
       }
 
+      // Show the AC's real, heartbeat-reported state on the switch itself
+      // (per user request), separate from anti_mildew_desired_ below - that
+      // stays sticky/unaffected and keeps driving what we actually SEND, so
+      // this display-only sync can't cancel the user's request the way
+      // syncing anti_mildew_desired_ itself would.
+      if (this->anti_mildew_switch_ != nullptr) {
+        this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
+      }
+
       // NOTE: unlike vane position, anti-mildew's STATUS bit appears to be
       // a real-time "actively self-cleaning right now" indicator, not a
       // stable mirror of the user's persistent setting - it goes OFF on
       // its own while the AC is just running normally. So we do NOT sync
       // anti_mildew_desired_ from it (that would silently cancel the
-      // user's request on the very next heartbeat). The switch always
-      // reflects what we last commanded; the binary_sensor above shows
-      // the AC's real-time activity.
+      // user's request on the very next heartbeat). anti_mildew_desired_
+      // keeps driving what we send; only the switch's displayed state
+      // (above) follows the AC's real-time activity.
 
       bool changed =
           old_mode != this->mode ||

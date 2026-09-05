@@ -138,6 +138,13 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   // next real heartbeat (after the round trip settles) confirm it.
   uint32_t vane_command_sent_at_{0};
 
+  // Same idea as vane_command_sent_at_: a heartbeat response arriving
+  // right after we send a target_temperature change may still reflect
+  // the AC's PREVIOUS temperature (it needs a moment to process the
+  // change), so we ignore the STATUS-reported temperature for a short
+  // window after our own command, then trust it again normally.
+  uint32_t temperature_command_sent_at_{0};
+
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
   sensor::Sensor *coil_temperature_sensor_{nullptr};
