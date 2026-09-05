@@ -99,6 +99,18 @@ void RotensoFrameBuilder::from_climate_state(
   frame_[8] =
       encode_mode_preset(climate->mode, preset);
 
+  // Eco preset - byte[7] bit 0x80. CONFIRMED against real hardware
+  // (captured from the genuine Tuya module's own traffic).
+  if (preset == climate::CLIMATE_PRESET_ECO) {
+    frame_[7] |= 0x80;
+  }
+
+  // "Turbo" custom preset (manufacturer's own name for this, confirmed via
+  // real capture as "Turbo Fan") - byte[8] bit 0x40.
+  if (climate->custom_preset.has_value() && *climate->custom_preset == "Turbo") {
+    frame_[8] |= 0x40;
+  }
+
   // Sleep preset
   frame_[19] =
       (preset == climate::CLIMATE_PRESET_SLEEP)
@@ -117,6 +129,23 @@ void RotensoFrameBuilder::from_climate_state(
   // Target temperature.
   encode_temperature(target_temp);
 
+}
+
+void RotensoFrameBuilder::set_anti_mildew(bool enabled) {
+  // CONFIRMED working against real hardware, captured from the genuine
+  // Tuya module's own traffic: byte[8] bit 0x20, independent of the
+  // preset bits already occupying that nibble (None/Comfort/Boost/Eco).
+  if (enabled) {
+    frame_[8] |= 0x20;
+  } else {
+    frame_[8] &= ~0x20;
+  }
+
+  ESP_LOGD(
+      TAG,
+      "Anti-mildew: %s -> byte[8]=0x%02X",
+      enabled ? "On" : "Off",
+      frame_[8]);
 }
 
 void RotensoFrameBuilder::set_vertical_vane_position(
@@ -211,7 +240,28 @@ void RotensoFrameBuilder::or_raw_byte(
 
 uint8_t RotensoFrameBuilder::encode_power(
     bool power) {
-  return power ? 0x64 : 0x60;
+  // CONFIRMED against real hardware: byte[7] bit 0x04 is the actual power
+  // bit. The old 0x60/0x64 constants baked in bits 0x20 (buzzer) and 0x40
+  // (display) as always-on, which we now control independently instead.
+  return power ? 0x04 : 0x00;
+}
+
+void RotensoFrameBuilder::set_buzzer(bool enabled) {
+  // CONFIRMED against real hardware: byte[7] bit 0x20.
+  if (enabled) {
+    frame_[7] |= 0x20;
+  } else {
+    frame_[7] &= ~0x20;
+  }
+}
+
+void RotensoFrameBuilder::set_display(bool enabled) {
+  // CONFIRMED against real hardware: byte[7] bit 0x40.
+  if (enabled) {
+    frame_[7] |= 0x40;
+  } else {
+    frame_[7] &= ~0x40;
+  }
 }
 
 uint8_t RotensoFrameBuilder::encode_mode_preset(
@@ -225,11 +275,13 @@ uint8_t RotensoFrameBuilder::encode_mode_preset(
       break;
 
     case climate::CLIMATE_PRESET_ECO:
-      preset_val = 0x8;
-      break;
-
-    case climate::CLIMATE_PRESET_BOOST:
-      preset_val = 0x4;
+      // NOTE: this preset_val=0x8 (byte[8] upper nibble) was NEVER
+      // confirmed against real hardware - it was inherited, unverified,
+      // from the original repo. A real capture now confirms ECO is
+      // actually byte[7] bit 0x80 (handled separately in
+      // from_climate_state()), so this case intentionally does nothing
+      // to byte[8] anymore.
+      preset_val = 0x0;
       break;
 
     case climate::CLIMATE_PRESET_COMFORT:

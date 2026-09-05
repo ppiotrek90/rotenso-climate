@@ -25,6 +25,18 @@ class RotensoFrameBuilder {
   // (movement enable). CONFIRMED working against real hardware.
   void set_horizontal_vane_position(const std::string &position);
 
+  // Apply anti-mildew on/off - byte 8 bit 0x20. CONFIRMED working against
+  // real hardware (captured from the genuine Tuya module's own traffic).
+  void set_anti_mildew(bool enabled);
+
+  // Apply buzzer on/off - byte 7 bit 0x20. CONFIRMED working against real
+  // hardware (captured from the genuine Tuya module's own traffic).
+  void set_buzzer(bool enabled);
+
+  // Apply display on/off - byte 7 bit 0x40. CONFIRMED working against real
+  // hardware (captured from the genuine Tuya module's own traffic).
+  void set_display(bool enabled);
+
   // Temporary test helpers.
   void set_raw_byte(size_t index, uint8_t value);
 

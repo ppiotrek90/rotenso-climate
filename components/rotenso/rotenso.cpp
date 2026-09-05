@@ -8,21 +8,17 @@ namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
 
-void RotensoClimate::write_frame_(const uint8_t *frame, size_t size) {
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < size; i++) {
-    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
-    log_line += byte_str;
-  }
-
-  ESP_LOGD(TAG, "UART frame (TX): %s", log_line.c_str());
-  this->write_array(frame, size);
-}
-
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
+
+  // Reflect the defaults in the UI right away, rather than waiting for the
+  // first time the user toggles them (they're already what we're sending).
+  if (this->buzzer_switch_ != nullptr) {
+    this->buzzer_switch_->publish_state(this->buzzer_desired_);
+  }
+  if (this->display_switch_ != nullptr) {
+    this->display_switch_->publish_state(this->display_desired_);
+  }
 
   this->set_interval("heartbeat", 3000, [this]() {
     this->send_heartbeat();
@@ -71,9 +67,13 @@ climate::ClimateTraits RotensoClimate::traits() {
   traits.set_supported_presets({
       climate::CLIMATE_PRESET_NONE,
       climate::CLIMATE_PRESET_ECO,
-      climate::CLIMATE_PRESET_BOOST,
       climate::CLIMATE_PRESET_SLEEP,
   });
+
+  // "Turbo Fan" is what the manufacturer's own Tuya module calls this
+  // (confirmed: byte[8] bit 0x40) - using a custom preset instead of the
+  // standard BOOST enum so it's actually labeled "Turbo" in the UI.
+  traits.set_supported_custom_presets({"Turbo"});
 
   // Simple on/off toggle on the climate card itself, alongside the detailed
   // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
@@ -93,21 +93,8 @@ climate::ClimateTraits RotensoClimate::traits() {
 }
 
 void RotensoClimate::control(const climate::ClimateCall &call) {
-  // Snapshot the complete climate state before applying the requested
-  // change. We publish the climate entity only once, and only when at least
-  // one climate field actually changed.
-  auto old_mode = this->mode;
-  auto old_fan_mode = this->fan_mode;
-  auto old_target_temperature = this->target_temperature;
-  auto old_preset = this->preset;
-  auto old_swing_mode = this->swing_mode;
-
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
-  }
-
-  if (call.get_fan_mode().has_value()) {
-    this->fan_mode = *call.get_fan_mode();
   }
 
   if (call.get_target_temperature().has_value()) {
@@ -116,41 +103,33 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
   if (call.get_preset().has_value()) {
     this->preset = *call.get_preset();
+    this->custom_preset = {};
+  }
+
+  if (call.get_custom_preset().has_value()) {
+    this->custom_preset = *call.get_custom_preset();
+    this->preset = climate::CLIMATE_PRESET_NONE;
   }
 
   if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing = *call.get_swing_mode();
     this->swing_mode = swing;
-
     // Simple toggle, overrides whatever the detailed selects had, matching
     // the intent of a simple click on the climate card.
-    const bool want_vertical =
-        swing == climate::CLIMATE_SWING_VERTICAL ||
-        swing == climate::CLIMATE_SWING_BOTH;
-    const bool want_horizontal =
-        swing == climate::CLIMATE_SWING_HORIZONTAL ||
-        swing == climate::CLIMATE_SWING_BOTH;
+    bool want_vertical = (swing == climate::CLIMATE_SWING_VERTICAL || swing == climate::CLIMATE_SWING_BOTH);
+    bool want_horizontal = (swing == climate::CLIMATE_SWING_HORIZONTAL || swing == climate::CLIMATE_SWING_BOTH);
 
     this->vertical_vane_position_ = want_vertical ? "Move Full" : "Off";
     this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
     this->vane_command_sent_at_ = millis();
 
-    const size_t vertical_index =
-        static_cast<size_t>(want_vertical ? 6 : 0);
-    if (vertical_index != this->last_published_vertical_vane_index_) {
-      this->last_published_vertical_vane_index_ = vertical_index;
-      if (this->vertical_vane_select_ != nullptr) {
-        this->vertical_vane_select_->publish_state(vertical_index);
-      }
+    this->last_published_vertical_vane_index_ = static_cast<size_t>(want_vertical ? 6 : 0);
+    if (this->vertical_vane_select_ != nullptr) {
+      this->vertical_vane_select_->publish_state(this->last_published_vertical_vane_index_);
     }
-
-    const size_t horizontal_index =
-        static_cast<size_t>(want_horizontal ? 6 : 0);
-    if (horizontal_index != this->last_published_horizontal_vane_index_) {
-      this->last_published_horizontal_vane_index_ = horizontal_index;
-      if (this->horizontal_vane_select_ != nullptr) {
-        this->horizontal_vane_select_->publish_state(horizontal_index);
-      }
+    this->last_published_horizontal_vane_index_ = static_cast<size_t>(want_horizontal ? 6 : 0);
+    if (this->horizontal_vane_select_ != nullptr) {
+      this->horizontal_vane_select_->publish_state(this->last_published_horizontal_vane_index_);
     }
   }
 
@@ -162,24 +141,13 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   // Climate parameter is changed.
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   auto frame = builder.build_frame();
 
-  this->write_frame_(frame.data(), frame.size());
-
-  // Publish the climate entity once, only if the requested command actually
-  // changed one of its climate fields. This keeps the climate log/network
-  // traffic quiet when the same value is selected again.
-  const bool climate_changed =
-      old_mode != this->mode ||
-      old_fan_mode != this->fan_mode ||
-      old_target_temperature != this->target_temperature ||
-      old_preset != this->preset ||
-      old_swing_mode != this->swing_mode;
-
-  if (climate_changed) {
-    this->publish_state();
-  }
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoVerticalVaneSelect::control(size_t index) {
@@ -198,6 +166,69 @@ void RotensoHorizontalVaneSelect::control(size_t index) {
   }
 
   this->parent_->control_horizontal_vane(index);
+}
+
+void RotensoAntiMildewSwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGW("rotenso.climate", "Anti-mildew switch has no parent");
+    return;
+  }
+
+  this->parent_->control_anti_mildew(state);
+}
+
+void RotensoClimate::control_anti_mildew(bool state) {
+  ESP_LOGI(TAG, "Anti-mildew set to: %s", state ? "On" : "Off");
+
+  this->anti_mildew_desired_ = state;
+
+  if (this->anti_mildew_switch_ != nullptr) {
+    this->anti_mildew_switch_->publish_state(state);
+  }
+
+  this->send_current_state_frame_();
+}
+
+void RotensoBuzzerSwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGW("rotenso.climate", "Buzzer switch has no parent");
+    return;
+  }
+
+  this->parent_->control_buzzer(state);
+}
+
+void RotensoClimate::control_buzzer(bool state) {
+  ESP_LOGI(TAG, "Buzzer set to: %s", state ? "On" : "Off");
+
+  this->buzzer_desired_ = state;
+
+  if (this->buzzer_switch_ != nullptr) {
+    this->buzzer_switch_->publish_state(state);
+  }
+
+  this->send_current_state_frame_();
+}
+
+void RotensoDisplaySwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGW("rotenso.climate", "Display switch has no parent");
+    return;
+  }
+
+  this->parent_->control_display(state);
+}
+
+void RotensoClimate::control_display(bool state) {
+  ESP_LOGI(TAG, "Display set to: %s", state ? "On" : "Off");
+
+  this->display_desired_ = state;
+
+  if (this->display_switch_ != nullptr) {
+    this->display_switch_->publish_state(state);
+  }
+
+  this->send_current_state_frame_();
 }
 
 void RotensoClimate::control_vertical_vane(size_t index) {
@@ -223,24 +254,16 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   const std::string position = positions[index];
   ESP_LOGI(TAG, "Vertical vane set to: %s", position.c_str());
 
-  const auto old_swing_mode = this->swing_mode;
-
   this->vertical_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
+  this->last_published_vertical_vane_index_ = index;
 
-  if (index != this->last_published_vertical_vane_index_) {
-    this->last_published_vertical_vane_index_ = index;
-    if (this->vertical_vane_select_ != nullptr) {
-      this->vertical_vane_select_->publish_state(index);
-    }
+  if (this->vertical_vane_select_ != nullptr) {
+    this->vertical_vane_select_->publish_state(index);
   }
 
-  // Changing the detailed vane select does not necessarily change the
-  // climate Swing Mode. Publish the climate entity only when it really did.
-  if (old_swing_mode != this->swing_mode) {
-    this->publish_state();
-  }
+  this->publish_state();
   this->send_current_state_frame_();
 }
 
@@ -266,24 +289,16 @@ void RotensoClimate::control_horizontal_vane(size_t index) {
   const std::string position = positions[index];
   ESP_LOGI(TAG, "Horizontal vane set to: %s", position.c_str());
 
-  const auto old_swing_mode = this->swing_mode;
-
   this->horizontal_vane_position_ = position;
   this->update_swing_mode_();
   this->vane_command_sent_at_ = millis();
+  this->last_published_horizontal_vane_index_ = index;
 
-  if (index != this->last_published_horizontal_vane_index_) {
-    this->last_published_horizontal_vane_index_ = index;
-    if (this->horizontal_vane_select_ != nullptr) {
-      this->horizontal_vane_select_->publish_state(index);
-    }
+  if (this->horizontal_vane_select_ != nullptr) {
+    this->horizontal_vane_select_->publish_state(index);
   }
 
-  // Changing the detailed vane select does not necessarily change the
-  // climate Swing Mode. Publish the climate entity only when it really did.
-  if (old_swing_mode != this->swing_mode) {
-    this->publish_state();
-  }
+  this->publish_state();
   this->send_current_state_frame_();
 }
 
@@ -294,10 +309,22 @@ void RotensoClimate::send_current_state_frame_() {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   auto frame = builder.build_frame();
 
-  this->write_frame_(frame.data(), frame.size());
+  std::string log_line;
+  char byte_str[6];
+
+  for (size_t i = 0; i < frame.size(); i++) {
+    snprintf(byte_str, sizeof(byte_str), "0x%02X ", frame[i]);
+    log_line += byte_str;
+  }
+
+  ESP_LOGD(TAG, "VANE FRAME: %s", log_line.c_str());
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
@@ -471,6 +498,9 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   builder.set_raw_byte(byte_index, value);
 
@@ -491,7 +521,7 @@ void RotensoClimate::send_test_frame(uint8_t byte_index, uint8_t value) {
       value,
       log_line.c_str());
 
-  this->write_frame_(frame.data(), frame.size());
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
@@ -502,6 +532,9 @@ void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   builder.set_raw_byte(byte_index1, value1);
   builder.set_raw_byte(byte_index2, value2);
@@ -525,7 +558,7 @@ void RotensoClimate::send_test_frame2(uint8_t byte_index1, uint8_t value1,
       value2,
       log_line.c_str());
 
-  this->write_frame_(frame.data(), frame.size());
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
@@ -535,6 +568,9 @@ void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   builder.or_raw_byte(byte_index, bits);
 
@@ -555,7 +591,7 @@ void RotensoClimate::send_test_frame_or(uint8_t byte_index, uint8_t bits) {
       bits,
       log_line.c_str());
 
-  this->write_frame_(frame.data(), frame.size());
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_test_frame_or2(
@@ -569,6 +605,9 @@ void RotensoClimate::send_test_frame_or2(
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+  builder.set_anti_mildew(this->anti_mildew_desired_);
+  builder.set_buzzer(this->buzzer_desired_);
+  builder.set_display(this->display_desired_);
 
   builder.or_raw_byte(byte_index1, bits1);
   builder.or_raw_byte(byte_index2, bits2);
@@ -592,7 +631,7 @@ void RotensoClimate::send_test_frame_or2(
       bits2,
       log_line.c_str());
 
-  this->write_frame_(frame.data(), frame.size());
+  this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::send_heartbeat() {
@@ -602,7 +641,9 @@ void RotensoClimate::send_heartbeat() {
       0xBB, 0x00, 0x01, 0x04,
       0x02, 0x01, 0x00, 0xBD};
 
-  this->write_frame_(heartbeat_packet, sizeof(heartbeat_packet));
+  this->write_array(
+      heartbeat_packet,
+      sizeof(heartbeat_packet));
 
   this->flush();
 
@@ -640,22 +681,18 @@ void RotensoClimate::parse_uart_response() {
     log_line += byte_str;
   }
 
-  ESP_LOGD(TAG, "UART response (RX): %s", log_line.c_str());
+  ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
 
-  // Heartbeat/status response: 61 bytes, command 0x04.
-  // Other frame types are currently ignored.
   if (buffer.size() == 61 && buffer[3] == 0x04) {
     auto parsed = parse_heartbeat(buffer);
 
     if (parsed.valid) {
-      // Climate fields use std::optional in current ESPHome, so keep the
-      // original types with auto and compare the optionals directly.
-      auto old_mode = this->mode;
-      auto old_fan_mode = this->fan_mode;
-      auto old_target_temperature = this->target_temperature;
-      auto old_current_temperature = this->current_temperature;
-      auto old_preset = this->preset;
-      auto old_swing_mode = this->swing_mode;
+      climate::ClimateMode old_mode = this->mode;
+      climate::ClimateFanMode old_fan_mode = this->fan_mode;
+      float old_target_temperature = this->target_temperature;
+      float old_current_temperature = this->current_temperature;
+      climate::ClimatePreset old_preset = this->preset;
+      climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
       this->mode = parsed.mode;
       this->fan_mode = parsed.fan_mode;
@@ -663,21 +700,33 @@ void RotensoClimate::parse_uart_response() {
       this->current_temperature = parsed.current_temperature;
       this->preset = parsed.preset;
 
-      // byte[51] is the reported vertical vane position.
       this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
       this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
-      // DEBUG keeps the heartbeat telemetry visible without forcing frequent
-      // Home Assistant state publications.
-      ESP_LOGD(
-          TAG,
-          "Heartbeat values: room=%.1fC coil=%.1fC error=%d anti_mildew=%d",
-          parsed.current_temperature,
-          parsed.coil_temperature,
-          parsed.error_code != 0,
-          parsed.anti_mildew);
+      ESP_LOGI(TAG, "Updated climate state from heartbeat");
 
-      bool climate_changed =
+      if (this->coil_temperature_sensor_ != nullptr) {
+        this->coil_temperature_sensor_->publish_state(
+            parsed.coil_temperature);
+      }
+
+      if (this->room_temperature_sensor_ != nullptr) {
+        this->room_temperature_sensor_->publish_state(
+            parsed.current_temperature);
+      }
+
+      if (this->error_binary_sensor_ != nullptr) {
+        this->error_binary_sensor_->publish_state(
+            parsed.error_code != 0);
+      }
+
+      if (this->anti_mildew_binary_sensor_ != nullptr) {
+        this->anti_mildew_binary_sensor_->publish_state(
+            parsed.anti_mildew);
+      }
+
+
+      bool changed =
           old_mode != this->mode ||
           old_fan_mode != this->fan_mode ||
           old_target_temperature != this->target_temperature ||
@@ -685,47 +734,8 @@ void RotensoClimate::parse_uart_response() {
           old_preset != this->preset ||
           old_swing_mode != this->swing_mode;
 
-      if (climate_changed) {
-        ESP_LOGD(TAG, "Climate state changed from heartbeat");
+      if (changed) {
         this->publish_state();
-      }
-
-      // Publish the extra sensors only when their value actually changes.
-      // The first valid heartbeat always publishes the initial state.
-      const bool error_state = parsed.error_code != 0;
-
-      if (this->coil_temperature_sensor_ != nullptr &&
-          (!this->has_published_coil_temperature_ ||
-           this->last_published_coil_temperature_ != parsed.coil_temperature)) {
-        this->last_published_coil_temperature_ = parsed.coil_temperature;
-        this->has_published_coil_temperature_ = true;
-        this->coil_temperature_sensor_->publish_state(
-            parsed.coil_temperature);
-      }
-
-      if (this->room_temperature_sensor_ != nullptr &&
-          (!this->has_published_room_temperature_ ||
-           this->last_published_room_temperature_ != parsed.current_temperature)) {
-        this->last_published_room_temperature_ = parsed.current_temperature;
-        this->has_published_room_temperature_ = true;
-        this->room_temperature_sensor_->publish_state(
-            parsed.current_temperature);
-      }
-
-      if (this->error_binary_sensor_ != nullptr &&
-          (!this->has_published_error_state_ ||
-           this->last_published_error_state_ != error_state)) {
-        this->last_published_error_state_ = error_state;
-        this->has_published_error_state_ = true;
-        this->error_binary_sensor_->publish_state(error_state);
-      }
-
-      if (this->anti_mildew_binary_sensor_ != nullptr &&
-          (!this->has_published_anti_mildew_state_ ||
-           this->last_published_anti_mildew_state_ != parsed.anti_mildew)) {
-        this->last_published_anti_mildew_state_ = parsed.anti_mildew;
-        this->has_published_anti_mildew_state_ = true;
-        this->anti_mildew_binary_sensor_->publish_state(parsed.anti_mildew);
       }
     }
   }

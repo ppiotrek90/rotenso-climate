@@ -8,6 +8,7 @@
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/components/switch/switch.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
 
@@ -36,6 +37,36 @@ class RotensoHorizontalVaneSelect : public select::Select {
   RotensoClimate *parent_{nullptr};
 };
 
+class RotensoAntiMildewSwitch : public switch_::Switch {
+ public:
+  void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  RotensoClimate *parent_{nullptr};
+};
+
+class RotensoBuzzerSwitch : public switch_::Switch {
+ public:
+  void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  RotensoClimate *parent_{nullptr};
+};
+
+class RotensoDisplaySwitch : public switch_::Switch {
+ public:
+  void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  RotensoClimate *parent_{nullptr};
+};
+
 class RotensoClimate : public climate::Climate, public Component, public uart::UARTDevice {
  public:
   void setup() override;
@@ -52,20 +83,32 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void control_vertical_vane(size_t index);
   void control_horizontal_vane(size_t index);
 
-  // TEMPORARY
-  void send_test_frame(uint8_t byte_index, uint8_t value);
+  void send_test_frame(uint8_t byte_index, uint8_t value);.
   void send_test_frame2(uint8_t byte_index1, uint8_t value1,
                         uint8_t byte_index2, uint8_t value2);
   void send_test_frame_or(uint8_t byte_index, uint8_t bits);
   void send_test_frame_or2(uint8_t byte_index1, uint8_t bits1,
                            uint8_t byte_index2, uint8_t bits2);
-  // Sensors
+
   void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
   void set_room_temperature_sensor(sensor::Sensor *s) { this->room_temperature_sensor_ = s; }
   void set_error_binary_sensor(binary_sensor::BinarySensor *s) { this->error_binary_sensor_ = s; }
   void set_anti_mildew_binary_sensor(binary_sensor::BinarySensor *s) {
     this->anti_mildew_binary_sensor_ = s;
   }
+  void set_anti_mildew_switch(switch_::Switch *s) {
+    this->anti_mildew_switch_ = s;
+  }
+  void set_buzzer_switch(switch_::Switch *s) {
+    this->buzzer_switch_ = s;
+  }
+  void set_display_switch(switch_::Switch *s) {
+    this->display_switch_ = s;
+  }
+
+  void control_anti_mildew(bool state);
+  void control_buzzer(bool state);
+  void control_display(bool state);
 
  protected:
   climate::ClimateTraits traits() override;
@@ -75,7 +118,6 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void parse_uart_response();
 
   void send_current_state_frame_();
-  void write_frame_(const uint8_t *frame, size_t size);
   void publish_vertical_vane_state_(uint8_t raw);
   void publish_horizontal_vane_state_(uint8_t raw);
   void update_swing_mode_();
@@ -86,7 +128,6 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   std::string horizontal_vane_position_{"Off"};
   select::Select *horizontal_vane_select_{nullptr};
   size_t last_published_horizontal_vane_index_{99};
-  // Last vane command timestamp; ignore stale heartbeat vane updates briefly.
   uint32_t vane_command_sent_at_{0};
 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
@@ -95,18 +136,12 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   sensor::Sensor *room_temperature_sensor_{nullptr};
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
   binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
-
-  // Extra sensors are published only when their value changes. The first
-  // valid heartbeat publishes the initial value. DEBUG logging remains
-  // available on every heartbeat without increasing network traffic.
-  bool has_published_coil_temperature_{false};
-  float last_published_coil_temperature_{0.0f};
-  bool has_published_room_temperature_{false};
-  float last_published_room_temperature_{0.0f};
-  bool has_published_error_state_{false};
-  bool last_published_error_state_{false};
-  bool has_published_anti_mildew_state_{false};
-  bool last_published_anti_mildew_state_{false};
+  switch_::Switch *anti_mildew_switch_{nullptr};
+  bool anti_mildew_desired_{false};
+  switch_::Switch *buzzer_switch_{nullptr};
+  bool buzzer_desired_{true};
+  switch_::Switch *display_switch_{nullptr};
+  bool display_desired_{true};
 };
 
 }  // namespace rotenso
