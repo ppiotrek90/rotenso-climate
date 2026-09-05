@@ -36,19 +36,35 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     uint8_t state_nibble = (state_mode_byte & 0xF0) >> 4;
     uint8_t mode_nibble = (state_mode_byte & 0x0F);
 
-    // Parse climate mode
-    if (state_nibble == 0x2) {
-        result.mode = climate::CLIMATE_MODE_OFF;
-      } else {
-        switch (mode_nibble) {
-          case 0x1: result.mode = climate::CLIMATE_MODE_COOL; break;
-          case 0x2: result.mode = climate::CLIMATE_MODE_FAN_ONLY;  break;
-          case 0x3: result.mode = climate::CLIMATE_MODE_DRY; break;
-          case 0x4: result.mode = climate::CLIMATE_MODE_HEAT; break;
-          case 0x5: result.mode = climate::CLIMATE_MODE_AUTO; break;
-          default: result.mode = climate::CLIMATE_MODE_OFF; break;
-        }
+    // Parse climate mode.
+    //
+    // IMPORTANT: power state is encoded independently from the low mode
+    // nibble. On this Rotenso/TCL variant an OFF status has been confirmed
+    // as byte[7] = 0x05: the low nibble (0x5) looks like AUTO, but the high
+    // state nibble is 0x0 and means the unit is actually OFF. Decoding the
+    // low nibble first therefore makes ESPHome jump from OFF back to AUTO.
+    //
+    // state_nibble == 0x2 was the OFF value used by the original component;
+    // keep it for compatibility with firmware/model variants.
+    const bool power_off = (state_nibble == 0x0 || state_nibble == 0x2);
+
+    if (power_off) {
+      result.mode = climate::CLIMATE_MODE_OFF;
+    } else {
+      switch (mode_nibble) {
+        case 0x1: result.mode = climate::CLIMATE_MODE_COOL; break;
+        case 0x2: result.mode = climate::CLIMATE_MODE_FAN_ONLY; break;
+        case 0x3: result.mode = climate::CLIMATE_MODE_DRY; break;
+        case 0x4: result.mode = climate::CLIMATE_MODE_HEAT; break;
+        case 0x5: result.mode = climate::CLIMATE_MODE_AUTO; break;
+        default:
+          ESP_LOGW(TAG,
+                   "Unknown active climate mode: byte[7]=0x%02X (state=0x%X, mode=0x%X)",
+                   state_mode_byte, state_nibble, mode_nibble);
+          result.mode = climate::CLIMATE_MODE_OFF;
+          break;
       }
+    }
 
       // Parse climate preset
       switch (state_nibble) {
