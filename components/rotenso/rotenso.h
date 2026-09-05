@@ -143,7 +143,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   // the AC's PREVIOUS temperature (it needs a moment to process the
   // change), so we ignore the STATUS-reported temperature for a short
   // window after our own command, then trust it again normally.
-  uint32_t temperature_command_sent_at_{0};
+  uint32_t climate_command_sent_at_{0};
 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
