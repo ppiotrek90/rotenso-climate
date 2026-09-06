@@ -11,9 +11,6 @@ static const char *const TAG = "rotenso.climate";
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
 
-  // Do not assume defaults for optional AC features. The physical remote can
-  // change them while ESPHome is offline, so the first thing we do is request
-  // a fresh status from the indoor unit.
   this->send_heartbeat();
 
   this->set_interval("heartbeat", 3000, [this]() {
@@ -67,9 +64,6 @@ climate::ClimateTraits RotensoClimate::traits() {
       climate::CLIMATE_PRESET_SLEEP,
   });
 
-  // Simple on/off toggle on the climate card itself, alongside the detailed
-  // "Vertical Vane"/"Horizontal Vane" selects. Vertical is confirmed working;
-  // horizontal READ is confirmed, WRITE (byte 33) is an unconfirmed guess.
   traits.set_supported_swing_modes({
       climate::CLIMATE_SWING_OFF,
       climate::CLIMATE_SWING_VERTICAL,
@@ -79,7 +73,7 @@ climate::ClimateTraits RotensoClimate::traits() {
 
   traits.set_visual_min_temperature(16);
   traits.set_visual_max_temperature(31);
-  traits.set_visual_temperature_step(0.5);
+  traits.set_visual_temperature_step(1.0);
 
   return traits;
 }
@@ -102,8 +96,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   if (call.get_swing_mode().has_value()) {
     climate::ClimateSwingMode swing = *call.get_swing_mode();
     this->swing_mode = swing;
-    // Simple toggle, overrides whatever the detailed selects had, matching
-    // the intent of a simple click on the climate card.
+
     bool want_vertical = (swing == climate::CLIMATE_SWING_VERTICAL || swing == climate::CLIMATE_SWING_BOTH);
     bool want_horizontal = (swing == climate::CLIMATE_SWING_HORIZONTAL || swing == climate::CLIMATE_SWING_BOTH);
 
@@ -124,9 +117,6 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   RotensoFrameBuilder builder;
 
   builder.from_climate_state(this, call);
-
-  // Preserve the currently selected vane position when another
-  // Climate parameter is changed.
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
   if (this->anti_mildew_state_valid_) {
@@ -142,14 +132,6 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   auto frame = builder.build_frame();
 
   this->write_array(frame.data(), frame.size());
-
-  // CRITICAL: without this, HA never finds out about a change WE just
-  // made until the next heartbeat happens to detect a difference on its
-  // own - and since mode/temperature are now debounced from the STATUS
-  // read for a couple seconds (to avoid the AC's own lag reverting them),
-  // the heartbeat's diff-check can't "see" a change we already applied
-  // locally the moment this function ran. This publish_state() is what
-  // actually pushes our own, immediate change to HA's climate card.
   this->publish_state();
 }
 
@@ -246,7 +228,6 @@ void RotensoClimate::control_vertical_vane(size_t index) {
     return;
   }
 
-  // Unknown is a diagnostic status, not a command.
   if (index == 9) {
     ESP_LOGW(TAG, "Ignoring attempt to select Unknown vertical vane state");
     return;
@@ -340,22 +321,10 @@ void RotensoClimate::send_current_state_frame_() {
 }
 
 void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
-  // Ignore a status frame that arrives too soon after we sent a vane
-  // command - it may still be answering the previous heartbeat request
-  // and would show a stale value, briefly flickering the select/swing
-  // back to the old state before the next real heartbeat corrects it.
   if (millis() - this->vane_command_sent_at_ < 2000) {
     return;
   }
 
-  // byte[51] packs TWO independent fields:
-  //   bits 3-4 = move sub-mode (1=Full, 2=Upper, 3=Lower, 0=not moving)
-  //   bits 0-2 = position anchor (1-5 = Top..Bottom, 0 = none)
-  // When moving, the AC reports whatever position the vane started the
-  // sweep from in bits 0-2 - that varies (we've seen 0x09, 0x0C/0x0D,
-  // 0x14/0x15, 0x1C/0x1D), so the move sub-mode (bits 3-4) is what
-  // actually identifies the mode; the position bits must be ignored for
-  // that classification, not matched as part of one fixed byte value.
   uint8_t mv = (raw >> 3) & 0x03;
   uint8_t pos = raw & 0x07;
 
@@ -372,7 +341,6 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
     position = "Move Lower";
     index = 8;
   } else {
-    // mv == 0: fixed position (or fully off)
     switch (pos) {
       case 0x00:
         position = "Off";
@@ -423,9 +391,6 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
     return;
   }
 
-  // byte[52] packs TWO independent fields, same as byte[51] for vertical:
-  //   bits 3-5 = move sub-mode (1=Full, 2=Left, 3=Mid, 4=Right, 0=not moving)
-  //   bits 0-2 = position anchor (1-5 = Left..Right, 0 = none)
   uint8_t mv = (raw >> 3) & 0x07;
   uint8_t pos = raw & 0x07;
 
