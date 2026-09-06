@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/climate/climate.h"
@@ -110,6 +111,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
 
   void send_heartbeat();
   void parse_uart_response();
+  void process_heartbeat_frame_(const std::vector<uint8_t> &frame);
 
   void send_current_state_frame_();
   void publish_vertical_vane_state_(uint8_t raw);
@@ -118,6 +120,10 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   bool pending_timed_out_(uint32_t sent_at) const;
 
   static constexpr uint32_t PENDING_TIMEOUT_MS = 5000;
+  static constexpr size_t HEARTBEAT_FRAME_SIZE = 61;
+  static constexpr size_t UART_RX_BUFFER_MAX = 256;
+
+  std::vector<uint8_t> uart_rx_buffer_;
 
   std::string vertical_vane_position_{"Off"};
   select::Select *vertical_vane_select_{nullptr};

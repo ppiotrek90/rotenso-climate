@@ -27,17 +27,10 @@ void RotensoClimate::setup() {
 }
 
 void RotensoClimate::loop() {
-  static int32_t response_start_time = -1;
-
-  if (response_start_time == -1 && this->available()) {
-    response_start_time = millis();
-    ESP_LOGD(TAG, "UART data detected, waiting to collect full response...");
-  }
-
-  if (response_start_time != -1 &&
-      millis() - response_start_time >= 500) {
+  // Drain UART immediately and let the frame buffer reassemble partial,
+  // concatenated or back-to-back responses.
+  if (this->available() > 0) {
     this->parse_uart_response();
-    response_start_time = -1;
   }
 }
 
@@ -529,162 +522,192 @@ void RotensoClimate::send_heartbeat() {
 }
 
 void RotensoClimate::parse_uart_response() {
-  size_t len = this->available();
+  // Read everything currently available. Frames may arrive split across
+  // multiple loop iterations or several frames may already be queued.
+  while (this->available() > 0) {
+    uint8_t byte;
+    if (!this->read_byte(&byte)) {
+      break;
+    }
+    this->uart_rx_buffer_.push_back(byte);
+  }
 
-  if (len == 0) {
+  if (this->uart_rx_buffer_.size() > UART_RX_BUFFER_MAX) {
+    ESP_LOGW(TAG, "UART RX buffer overflow (%u bytes), resynchronizing",
+             static_cast<unsigned>(this->uart_rx_buffer_.size()));
+    this->uart_rx_buffer_.erase(
+        this->uart_rx_buffer_.begin(),
+        this->uart_rx_buffer_.end() - HEARTBEAT_FRAME_SIZE);
+  }
+
+  while (true) {
+    size_t start = 0;
+    while (start + 3 < this->uart_rx_buffer_.size() &&
+           !(this->uart_rx_buffer_[start] == 0xBB &&
+             this->uart_rx_buffer_[start + 1] == 0x01 &&
+             this->uart_rx_buffer_[start + 2] == 0x00 &&
+             this->uart_rx_buffer_[start + 3] == 0x04)) {
+      start++;
+    }
+
+    if (start + 3 >= this->uart_rx_buffer_.size()) {
+      // Keep a possible start byte for the next UART chunk.
+      if (!this->uart_rx_buffer_.empty() && this->uart_rx_buffer_.back() == 0xBB) {
+        this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
+                                    this->uart_rx_buffer_.end() - 1);
+      } else {
+        this->uart_rx_buffer_.clear();
+      }
+      return;
+    }
+
+    if (start > 0) {
+      ESP_LOGD(TAG, "Discarding %u non-heartbeat UART bytes while resynchronizing",
+               static_cast<unsigned>(start));
+      this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
+                                  this->uart_rx_buffer_.begin() + start);
+    }
+
+    if (this->uart_rx_buffer_.size() < HEARTBEAT_FRAME_SIZE) {
+      return;
+    }
+
+    std::vector<uint8_t> frame(this->uart_rx_buffer_.begin(),
+                               this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+    auto parsed = parse_heartbeat(frame);
+    if (!parsed.valid) {
+      ESP_LOGW(TAG, "Invalid heartbeat frame, resynchronizing UART stream");
+      this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin());
+      continue;
+    }
+
+    this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
+                                this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+    this->process_heartbeat_frame_(frame);
+  }
+}
+
+void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame) {
+  auto parsed = parse_heartbeat(frame);
+  if (!parsed.valid) {
     return;
   }
 
-  std::vector<uint8_t> buffer;
-  buffer.reserve(len);
+  climate::ClimateMode old_mode = this->mode;
+  optional<climate::ClimateFanMode> old_fan_mode = this->fan_mode;
+  float old_target_temperature = this->target_temperature;
+  float old_current_temperature = this->current_temperature;
+  optional<climate::ClimatePreset> old_preset = this->preset;
+  climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
-  for (size_t i = 0; i < len; i++) {
-    uint8_t byte;
-
-    if (this->read_byte(&byte)) {
-      buffer.push_back(byte);
+  if (this->pending_mode_valid_) {
+    if (parsed.mode == this->pending_mode_) {
+      this->pending_mode_valid_ = false;
+      this->mode = parsed.mode;
+    } else if (this->pending_timed_out_(this->pending_mode_sent_at_)) {
+      this->pending_mode_valid_ = false;
+      this->mode = parsed.mode;
     }
+  } else {
+    this->mode = parsed.mode;
   }
 
-  std::string log_line;
-  char byte_str[6];
-
-  for (size_t i = 0; i < buffer.size(); i++) {
-    snprintf(
-        byte_str,
-        sizeof(byte_str),
-        "0x%02X ",
-        buffer[i]);
-
-    log_line += byte_str;
+  if (this->pending_target_temperature_valid_) {
+    if (fabsf(parsed.temperature - this->pending_target_temperature_) < 0.01f) {
+      this->pending_target_temperature_valid_ = false;
+      this->target_temperature = parsed.temperature;
+    } else if (this->pending_timed_out_(this->pending_target_temperature_sent_at_)) {
+      this->pending_target_temperature_valid_ = false;
+      this->target_temperature = parsed.temperature;
+    }
+  } else {
+    this->target_temperature = parsed.temperature;
   }
 
-  ESP_LOGD(TAG, "UART response: %s", log_line.c_str());
-
-  // Heartbeat/status response:
-  // 61 bytes, command 0x04.
-  //
-  // Other frame types are currently ignored.
-  if (buffer.size() == 61 && buffer[3] == 0x04) {
-    auto parsed = parse_heartbeat(buffer);
-
-    if (parsed.valid) {
-      climate::ClimateMode old_mode = this->mode;
-      optional<climate::ClimateFanMode> old_fan_mode = this->fan_mode;
-      float old_target_temperature = this->target_temperature;
-      float old_current_temperature = this->current_temperature;
-      optional<climate::ClimatePreset> old_preset = this->preset;
-      climate::ClimateSwingMode old_swing_mode = this->swing_mode;
-
-      if (this->pending_mode_valid_) {
-        if (parsed.mode == this->pending_mode_) {
-          this->pending_mode_valid_ = false;
-          this->mode = parsed.mode;
-        } else if (this->pending_timed_out_(this->pending_mode_sent_at_)) {
-          this->pending_mode_valid_ = false;
-          this->mode = parsed.mode;
-        }
-      } else {
-        this->mode = parsed.mode;
-      }
-
-      if (this->pending_target_temperature_valid_) {
-        if (fabsf(parsed.temperature - this->pending_target_temperature_) < 0.01f) {
-          this->pending_target_temperature_valid_ = false;
-          this->target_temperature = parsed.temperature;
-        } else if (this->pending_timed_out_(this->pending_target_temperature_sent_at_)) {
-          this->pending_target_temperature_valid_ = false;
-          this->target_temperature = parsed.temperature;
-        }
-      } else {
-        this->target_temperature = parsed.temperature;
-      }
-
-      if (this->pending_fan_mode_valid_) {
-        if (parsed.fan_mode == this->pending_fan_mode_) {
-          this->pending_fan_mode_valid_ = false;
-          this->fan_mode = parsed.fan_mode;
-        } else if (this->pending_timed_out_(this->pending_fan_mode_sent_at_)) {
-          this->pending_fan_mode_valid_ = false;
-          this->fan_mode = parsed.fan_mode;
-        }
-      } else {
-        this->fan_mode = parsed.fan_mode;
-      }
-      this->current_temperature = parsed.current_temperature;
-      // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
-      // That READ-side decode (state_nibble in the STATUS frame) was never
-      // independently confirmed and appears unreliable specifically for
-      // ECO - it kept reporting ECO even after we sent the confirmed OFF
-      // bit, silently reverting the user's own choice on the very next
-      // heartbeat (the exact same bug we already fixed for anti-mildew).
-      // preset is now purely a sticky, software-owned value like the vane
-      // positions/anti-mildew/buzzer/display - only changed via control().
-
-      // byte[51] is the reported vertical vane position.
-      this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
-      this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
-
-      ESP_LOGI(TAG, "Updated climate state from heartbeat");
-
-      if (this->coil_temperature_sensor_ != nullptr) {
-        this->coil_temperature_sensor_->publish_state(
-            parsed.coil_temperature);
-      }
-
-      if (this->room_temperature_sensor_ != nullptr) {
-        this->room_temperature_sensor_->publish_state(
-            parsed.current_temperature);
-      }
-
-      if (this->error_binary_sensor_ != nullptr) {
-        this->error_binary_sensor_->publish_state(
-            parsed.error_code != 0);
-      }
-
-      if (this->anti_mildew_binary_sensor_ != nullptr) {
-        this->anti_mildew_binary_sensor_->publish_state(
-            parsed.anti_mildew);
-      }
-
-      // Anti-mildew has a confirmed RX status bit (byte[9] bit 0x08).
-      // Use the first valid heartbeat to initialize the switch from the AC
-      // instead of inventing a default. During normal operation the same bit
-      // can represent the currently active self-drying process, so it is also
-      // exposed separately through the binary sensor and must not overwrite
-      // the user's persistent command on every heartbeat.
-      // Display has a confirmed RX status bit and is always synchronized
-      // from the AC so startup and external changes are reflected in HA.
-      this->display_state_ = parsed.display;
-      this->display_state_valid_ = true;
-      if (this->display_switch_ != nullptr) {
-        this->display_switch_->publish_state(parsed.display);
-      }
-
-      if (!this->anti_mildew_state_valid_) {
-        this->anti_mildew_state_ = parsed.anti_mildew;
-        this->anti_mildew_state_valid_ = true;
-        if (this->anti_mildew_switch_ != nullptr) {
-          this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
-        }
-        ESP_LOGI(TAG, "Initialized anti-mildew from AC: %s",
-                 parsed.anti_mildew ? "On" : "Off");
-      }
-
-      bool changed =
-          old_mode != this->mode ||
-          old_fan_mode != this->fan_mode ||
-          old_target_temperature != this->target_temperature ||
-          old_current_temperature != this->current_temperature ||
-          old_preset != this->preset ||
-          old_swing_mode != this->swing_mode;
-
-      if (changed) {
-        this->publish_state();
-      }
+  if (this->pending_fan_mode_valid_) {
+    if (parsed.fan_mode == this->pending_fan_mode_) {
+      this->pending_fan_mode_valid_ = false;
+      this->fan_mode = parsed.fan_mode;
+    } else if (this->pending_timed_out_(this->pending_fan_mode_sent_at_)) {
+      this->pending_fan_mode_valid_ = false;
+      this->fan_mode = parsed.fan_mode;
     }
+  } else {
+    this->fan_mode = parsed.fan_mode;
+  }
+  this->current_temperature = parsed.current_temperature;
+  // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
+  // That READ-side decode (state_nibble in the STATUS frame) was never
+  // independently confirmed and appears unreliable specifically for
+  // ECO - it kept reporting ECO even after we sent the confirmed OFF
+  // bit, silently reverting the user's own choice on the very next
+  // heartbeat (the exact same bug we already fixed for anti-mildew).
+  // preset is now purely a sticky, software-owned value like the vane
+  // positions/anti-mildew/buzzer/display - only changed via control().
+
+  // byte[51] is the reported vertical vane position.
+  this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
+  this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
+
+  ESP_LOGI(TAG, "Updated climate state from heartbeat");
+
+  if (this->coil_temperature_sensor_ != nullptr) {
+    this->coil_temperature_sensor_->publish_state(
+        parsed.coil_temperature);
+  }
+
+  if (this->room_temperature_sensor_ != nullptr) {
+    this->room_temperature_sensor_->publish_state(
+        parsed.current_temperature);
+  }
+
+  if (this->error_binary_sensor_ != nullptr) {
+    this->error_binary_sensor_->publish_state(
+        parsed.error_code != 0);
+  }
+
+  if (this->anti_mildew_binary_sensor_ != nullptr) {
+    this->anti_mildew_binary_sensor_->publish_state(
+        parsed.anti_mildew);
+  }
+
+  // Anti-mildew has a confirmed RX status bit (byte[9] bit 0x08).
+  // Use the first valid heartbeat to initialize the switch from the AC
+  // instead of inventing a default. During normal operation the same bit
+  // can represent the currently active self-drying process, so it is also
+  // exposed separately through the binary sensor and must not overwrite
+  // the user's persistent command on every heartbeat.
+  // Display has a confirmed RX status bit and is always synchronized
+  // from the AC so startup and external changes are reflected in HA.
+  this->display_state_ = parsed.display;
+  this->display_state_valid_ = true;
+  if (this->display_switch_ != nullptr) {
+    this->display_switch_->publish_state(parsed.display);
+  }
+
+  if (!this->anti_mildew_state_valid_) {
+    this->anti_mildew_state_ = parsed.anti_mildew;
+    this->anti_mildew_state_valid_ = true;
+    if (this->anti_mildew_switch_ != nullptr) {
+      this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
+    }
+    ESP_LOGI(TAG, "Initialized anti-mildew from AC: %s",
+             parsed.anti_mildew ? "On" : "Off");
+  }
+
+  bool changed =
+      old_mode != this->mode ||
+      old_fan_mode != this->fan_mode ||
+      old_target_temperature != this->target_temperature ||
+      old_current_temperature != this->current_temperature ||
+      old_preset != this->preset ||
+      old_swing_mode != this->swing_mode;
+
+  if (changed) {
+    this->publish_state();
   }
 }
+
 
 }  // namespace rotenso
 }  // namespace esphome
