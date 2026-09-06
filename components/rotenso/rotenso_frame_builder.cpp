@@ -330,15 +330,16 @@ void RotensoFrameBuilder::encode_temperature(
       0x50 | encoded_low_nibble;
 
   // Byte[11]:
-  // 0x0A for .5
-  // 0x08 otherwise
+  // bit 0x02 = half degree.
+  // bit 0x08 belongs to horizontal vane movement and is handled separately
+  // by set_horizontal_vane_position(). Preserve it here.
   float decimal =
       temperature - static_cast<float>(temp_int);
 
-  frame_[11] =
-      (std::abs(decimal - 0.5f) < 0.01f)
-          ? 0x0A
-          : 0x08;
+  frame_[11] &= ~0x02;
+  if (std::abs(decimal - 0.5f) < 0.01f) {
+    frame_[11] |= 0x02;
+  }
 }
 
 void RotensoFrameBuilder::set_fan_speed(
