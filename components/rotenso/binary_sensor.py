@@ -25,7 +25,3 @@ async def to_code(config):
     if CONF_ERROR in config:
         sens = await binary_sensor.new_binary_sensor(config[CONF_ERROR])
         cg.add(parent.set_error_binary_sensor(sens))
-
-    if CONF_ANTI_MILDEW in config:
-        sens = await binary_sensor.new_binary_sensor(config[CONF_ANTI_MILDEW])
-        cg.add(parent.set_anti_mildew_binary_sensor(sens))
