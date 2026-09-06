@@ -115,6 +115,9 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void publish_vertical_vane_state_(uint8_t raw);
   void publish_horizontal_vane_state_(uint8_t raw);
   void update_swing_mode_();
+  bool pending_timed_out_(uint32_t sent_at) const;
+
+  static constexpr uint32_t PENDING_TIMEOUT_MS = 5000;
 
   std::string vertical_vane_position_{"Off"};
   select::Select *vertical_vane_select_{nullptr};
@@ -122,19 +125,26 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   std::string horizontal_vane_position_{"Off"};
   select::Select *horizontal_vane_select_{nullptr};
   size_t last_published_horizontal_vane_index_{99};
-  // millis() timestamp of the last vane command we sent. A heartbeat
-  // response arriving shortly after may still be answering the PREVIOUS
-  // heartbeat request (sent before our command), so its vane byte would
-  // be stale - we ignore vane updates within this window and let the
-  // next real heartbeat (after the round trip settles) confirm it.
-  uint32_t vane_command_sent_at_{0};
 
-  // Same idea as vane_command_sent_at_: a heartbeat response arriving
-  // right after we send a target_temperature change may still reflect
-  // the AC's PREVIOUS temperature (it needs a moment to process the
-  // change), so we ignore the STATUS-reported temperature for a short
-  // window after our own command, then trust it again normally.
-  uint32_t climate_command_sent_at_{0};
+  bool pending_target_temperature_valid_{false};
+  float pending_target_temperature_{0.0f};
+  uint32_t pending_target_temperature_sent_at_{0};
+
+  bool pending_mode_valid_{false};
+  climate::ClimateMode pending_mode_{climate::CLIMATE_MODE_OFF};
+  uint32_t pending_mode_sent_at_{0};
+
+  bool pending_fan_mode_valid_{false};
+  climate::ClimateFanMode pending_fan_mode_{climate::CLIMATE_FAN_AUTO};
+  uint32_t pending_fan_mode_sent_at_{0};
+
+  bool pending_vertical_vane_valid_{false};
+  std::string pending_vertical_vane_position_{"Off"};
+  uint32_t pending_vertical_vane_sent_at_{0};
+
+  bool pending_horizontal_vane_valid_{false};
+  std::string pending_horizontal_vane_position_{"Off"};
+  uint32_t pending_horizontal_vane_sent_at_{0};
 
   climate::ClimatePreset preset_{climate::CLIMATE_PRESET_NONE};
 
@@ -149,8 +159,8 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   bool anti_mildew_state_{false};
   bool anti_mildew_state_valid_{false};
   switch_::Switch *buzzer_switch_{nullptr};
-  bool buzzer_state_{false};
-  bool buzzer_state_valid_{false};
+  bool buzzer_state_{true};
+  bool buzzer_state_valid_{true};
   switch_::Switch *display_switch_{nullptr};
   bool display_state_{false};
   bool display_state_valid_{false};

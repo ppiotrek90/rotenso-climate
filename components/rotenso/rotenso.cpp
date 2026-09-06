@@ -3,6 +3,8 @@
 #include "rotenso_frame_builder.h"
 #include "esphome/core/log.h"
 
+#include <cmath>
+
 namespace esphome {
 namespace rotenso {
 
@@ -10,6 +12,12 @@ static const char *const TAG = "rotenso.climate";
 
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
+
+  // Buzzer state is not available in the RX status frame. Keep a safe,
+  // explicit default and expose it immediately after startup.
+  if (this->buzzer_switch_ != nullptr) {
+    this->buzzer_switch_->publish_state(this->buzzer_state_);
+  }
 
   this->send_heartbeat();
 
@@ -81,12 +89,23 @@ climate::ClimateTraits RotensoClimate::traits() {
 void RotensoClimate::control(const climate::ClimateCall &call) {
   if (call.get_mode().has_value()) {
     this->mode = *call.get_mode();
-    this->climate_command_sent_at_ = millis();
+    this->pending_mode_ = this->mode;
+    this->pending_mode_valid_ = true;
+    this->pending_mode_sent_at_ = millis();
   }
 
   if (call.get_target_temperature().has_value()) {
     this->target_temperature = *call.get_target_temperature();
-    this->climate_command_sent_at_ = millis();
+    this->pending_target_temperature_ = this->target_temperature;
+    this->pending_target_temperature_valid_ = true;
+    this->pending_target_temperature_sent_at_ = millis();
+  }
+
+  if (call.get_fan_mode().has_value()) {
+    this->fan_mode = *call.get_fan_mode();
+    this->pending_fan_mode_ = *this->fan_mode;
+    this->pending_fan_mode_valid_ = true;
+    this->pending_fan_mode_sent_at_ = millis();
   }
 
   if (call.get_preset().has_value()) {
@@ -102,7 +121,12 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
 
     this->vertical_vane_position_ = want_vertical ? "Move Full" : "Off";
     this->horizontal_vane_position_ = want_horizontal ? "Move Full" : "Off";
-    this->vane_command_sent_at_ = millis();
+    this->pending_vertical_vane_position_ = this->vertical_vane_position_;
+    this->pending_vertical_vane_valid_ = true;
+    this->pending_vertical_vane_sent_at_ = millis();
+    this->pending_horizontal_vane_position_ = this->horizontal_vane_position_;
+    this->pending_horizontal_vane_valid_ = true;
+    this->pending_horizontal_vane_sent_at_ = millis();
 
     this->last_published_vertical_vane_index_ = static_cast<size_t>(want_vertical ? 6 : 0);
     if (this->vertical_vane_select_ != nullptr) {
@@ -242,8 +266,10 @@ void RotensoClimate::control_vertical_vane(size_t index) {
   ESP_LOGI(TAG, "Vertical vane set to: %s", position.c_str());
 
   this->vertical_vane_position_ = position;
+  this->pending_vertical_vane_position_ = position;
+  this->pending_vertical_vane_valid_ = true;
+  this->pending_vertical_vane_sent_at_ = millis();
   this->update_swing_mode_();
-  this->vane_command_sent_at_ = millis();
   this->last_published_vertical_vane_index_ = index;
 
   if (this->vertical_vane_select_ != nullptr) {
@@ -277,8 +303,10 @@ void RotensoClimate::control_horizontal_vane(size_t index) {
   ESP_LOGI(TAG, "Horizontal vane set to: %s", position.c_str());
 
   this->horizontal_vane_position_ = position;
+  this->pending_horizontal_vane_position_ = position;
+  this->pending_horizontal_vane_valid_ = true;
+  this->pending_horizontal_vane_sent_at_ = millis();
   this->update_swing_mode_();
-  this->vane_command_sent_at_ = millis();
   this->last_published_horizontal_vane_index_ = index;
 
   if (this->horizontal_vane_select_ != nullptr) {
@@ -321,9 +349,6 @@ void RotensoClimate::send_current_state_frame_() {
 }
 
 void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
-  if (millis() - this->vane_command_sent_at_ < 2000) {
-    return;
-  }
 
   uint8_t mv = (raw >> 3) & 0x03;
   uint8_t pos = raw & 0x07;
@@ -374,6 +399,16 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
     }
   }
 
+  if (this->pending_vertical_vane_valid_) {
+    if (position == this->pending_vertical_vane_position_) {
+      this->pending_vertical_vane_valid_ = false;
+    } else if (!this->pending_timed_out_(this->pending_vertical_vane_sent_at_)) {
+      return;
+    } else {
+      this->pending_vertical_vane_valid_ = false;
+    }
+  }
+
   this->vertical_vane_position_ = position;
   this->update_swing_mode_();
 
@@ -385,11 +420,6 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
 }
 
 void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
-  // Ignore a status frame that arrives too soon after we sent a vane
-  // command - same reasoning as publish_vertical_vane_state_().
-  if (millis() - this->vane_command_sent_at_ < 2000) {
-    return;
-  }
 
   uint8_t mv = (raw >> 3) & 0x07;
   uint8_t pos = raw & 0x07;
@@ -443,6 +473,16 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
     }
   }
 
+  if (this->pending_horizontal_vane_valid_) {
+    if (position == this->pending_horizontal_vane_position_) {
+      this->pending_horizontal_vane_valid_ = false;
+    } else if (!this->pending_timed_out_(this->pending_horizontal_vane_sent_at_)) {
+      return;
+    } else {
+      this->pending_horizontal_vane_valid_ = false;
+    }
+  }
+
   this->horizontal_vane_position_ = position;
   this->update_swing_mode_();
 
@@ -451,6 +491,10 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
     if (this->horizontal_vane_select_ != nullptr)
       this->horizontal_vane_select_->publish_state(index);
   }
+}
+
+bool RotensoClimate::pending_timed_out_(uint32_t sent_at) const {
+  return millis() - sent_at >= PENDING_TIMEOUT_MS;
 }
 
 void RotensoClimate::update_swing_mode_() {
@@ -532,16 +576,41 @@ void RotensoClimate::parse_uart_response() {
       optional<climate::ClimatePreset> old_preset = this->preset;
       climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
-      // Sync mode/target_temperature from STATUS normally, but ignore it
-      // for a short window right after we ourselves changed either - the
-      // AC needs a moment to actually process a new mode/temperature, so
-      // a heartbeat arriving in that window may still report the OLD
-      // value and would otherwise revert the user's own just-made choice.
-      if (millis() - this->climate_command_sent_at_ >= 2000) {
+      if (this->pending_mode_valid_) {
+        if (parsed.mode == this->pending_mode_) {
+          this->pending_mode_valid_ = false;
+          this->mode = parsed.mode;
+        } else if (this->pending_timed_out_(this->pending_mode_sent_at_)) {
+          this->pending_mode_valid_ = false;
+          this->mode = parsed.mode;
+        }
+      } else {
         this->mode = parsed.mode;
+      }
+
+      if (this->pending_target_temperature_valid_) {
+        if (fabsf(parsed.temperature - this->pending_target_temperature_) < 0.01f) {
+          this->pending_target_temperature_valid_ = false;
+          this->target_temperature = parsed.temperature;
+        } else if (this->pending_timed_out_(this->pending_target_temperature_sent_at_)) {
+          this->pending_target_temperature_valid_ = false;
+          this->target_temperature = parsed.temperature;
+        }
+      } else {
         this->target_temperature = parsed.temperature;
       }
-      this->fan_mode = parsed.fan_mode;
+
+      if (this->pending_fan_mode_valid_) {
+        if (parsed.fan_mode == this->pending_fan_mode_) {
+          this->pending_fan_mode_valid_ = false;
+          this->fan_mode = parsed.fan_mode;
+        } else if (this->pending_timed_out_(this->pending_fan_mode_sent_at_)) {
+          this->pending_fan_mode_valid_ = false;
+          this->fan_mode = parsed.fan_mode;
+        }
+      } else {
+        this->fan_mode = parsed.fan_mode;
+      }
       this->current_temperature = parsed.current_temperature;
       // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
       // That READ-side decode (state_nibble in the STATUS frame) was never
@@ -584,6 +653,14 @@ void RotensoClimate::parse_uart_response() {
       // can represent the currently active self-drying process, so it is also
       // exposed separately through the binary sensor and must not overwrite
       // the user's persistent command on every heartbeat.
+      // Display has a confirmed RX status bit and is always synchronized
+      // from the AC so startup and external changes are reflected in HA.
+      this->display_state_ = parsed.display;
+      this->display_state_valid_ = true;
+      if (this->display_switch_ != nullptr) {
+        this->display_switch_->publish_state(parsed.display);
+      }
+
       if (!this->anti_mildew_state_valid_) {
         this->anti_mildew_state_ = parsed.anti_mildew;
         this->anti_mildew_state_valid_ = true;

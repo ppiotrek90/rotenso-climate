@@ -124,6 +124,9 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
     // Anti-mildew
     result.anti_mildew = (buffer[9] & 0x08) != 0;
 
+    // Display status, confirmed from RX captures.
+    result.display = (buffer[7] & 0x20) != 0;
+
     // Vane position
     result.vertical_vane_position_raw = buffer[51];
     result.horizontal_vane_position_raw = buffer[52];

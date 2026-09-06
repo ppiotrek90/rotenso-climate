@@ -19,9 +19,11 @@ struct ParsedClimateState {
     uint8_t error_code;
     // Anti-mildew
     bool anti_mildew;
+    // Display status
+    bool display;
     // Vane position
     uint8_t vertical_vane_position_raw;
-    // Horizontal vane status - byte 52. Confirmed working against real hardware.
+    // Horizontal vane
     uint8_t horizontal_vane_position_raw;
 };
       
