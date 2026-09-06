@@ -696,33 +696,21 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
         parsed.error_code != 0);
   }
 
-  if (this->anti_mildew_binary_sensor_ != nullptr) {
-    this->anti_mildew_binary_sensor_->publish_state(
-        parsed.anti_mildew);
+  // Anti-mildew and display have confirmed RX status bits. Always
+  // synchronize both software states and HA switches from the latest
+  // heartbeat so changes made with the physical remote are reflected too.
+  // publish_state() updates HA only and does not call write_state(), so
+  // receiving a remote change never sends a frame back to the AC.
+  this->anti_mildew_state_ = parsed.anti_mildew;
+  this->anti_mildew_state_valid_ = true;
+  if (this->anti_mildew_switch_ != nullptr) {
+    this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
   }
 
-  // Anti-mildew has a confirmed RX status bit (byte[9] bit 0x08).
-  // Use the first valid heartbeat to initialize the switch from the AC
-  // instead of inventing a default. During normal operation the same bit
-  // can represent the currently active self-drying process, so it is also
-  // exposed separately through the binary sensor and must not overwrite
-  // the user's persistent command on every heartbeat.
-  // Display has a confirmed RX status bit and is always synchronized
-  // from the AC so startup and external changes are reflected in HA.
   this->display_state_ = parsed.display;
   this->display_state_valid_ = true;
   if (this->display_switch_ != nullptr) {
     this->display_switch_->publish_state(parsed.display);
-  }
-
-  if (!this->anti_mildew_state_valid_) {
-    this->anti_mildew_state_ = parsed.anti_mildew;
-    this->anti_mildew_state_valid_ = true;
-    if (this->anti_mildew_switch_ != nullptr) {
-      this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
-    }
-    ESP_LOGI(TAG, "Initialized anti-mildew from AC: %s",
-             parsed.anti_mildew ? "On" : "Off");
   }
 
   bool changed =

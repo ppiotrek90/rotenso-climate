@@ -7,7 +7,6 @@ from . import climate as rotenso_climate
 
 CONF_ROTENSO_ID = "rotenso_id"
 CONF_ERROR = "error"
-CONF_ANTI_MILDEW = "anti_mildew"
 
 CONFIG_SCHEMA = cv.Schema(
     {
@@ -15,9 +14,6 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_ERROR): binary_sensor.binary_sensor_schema(
             device_class=DEVICE_CLASS_PROBLEM,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
-        ),
-        cv.Optional(CONF_ANTI_MILDEW): binary_sensor.binary_sensor_schema(
-            icon="mdi:air-filter",
         ),
     }
 )

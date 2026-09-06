@@ -33,6 +33,7 @@ CONFIG_SCHEMA = cv.Schema(
             state_class=STATE_CLASS_MEASUREMENT,
             icon=ICON_THERMOMETER,
             accuracy_decimals=1,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         ),
     }
 )

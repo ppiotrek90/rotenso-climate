@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 
-#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/select/select.h"
 #include "esphome/components/sensor/sensor.h"
@@ -88,9 +87,6 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
   void set_room_temperature_sensor(sensor::Sensor *s) { this->room_temperature_sensor_ = s; }
   void set_error_binary_sensor(binary_sensor::BinarySensor *s) { this->error_binary_sensor_ = s; }
-  void set_anti_mildew_binary_sensor(binary_sensor::BinarySensor *s) {
-    this->anti_mildew_binary_sensor_ = s;
-  }
   void set_anti_mildew_switch(switch_::Switch *s) {
     this->anti_mildew_switch_ = s;
   }
@@ -157,7 +153,6 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   sensor::Sensor *coil_temperature_sensor_{nullptr};
   sensor::Sensor *room_temperature_sensor_{nullptr};
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
-  binary_sensor::BinarySensor *anti_mildew_binary_sensor_{nullptr};
   switch_::Switch *anti_mildew_switch_{nullptr};
   // Feature state is unknown until the AC reports it or the user changes it.
   // We deliberately do not assign startup defaults because the physical
