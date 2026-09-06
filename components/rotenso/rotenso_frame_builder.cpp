@@ -142,6 +142,21 @@ void RotensoFrameBuilder::set_anti_mildew(bool enabled) {
       frame_[8]);
 }
 
+void RotensoFrameBuilder::set_health(bool enabled) {
+  // Confirmed from dedicated Health ON/OFF captures: TX byte[8] bit 0x10.
+  if (enabled) {
+    frame_[8] |= 0x10;
+  } else {
+    frame_[8] &= ~0x10;
+  }
+
+  ESP_LOGD(
+      TAG,
+      "Health: %s -> byte[8]=0x%02X",
+      enabled ? "On" : "Off",
+      frame_[8]);
+}
+
 void RotensoFrameBuilder::set_vertical_vane_position(
     const std::string &position) {
   const uint8_t vane_byte =
@@ -158,7 +173,7 @@ void RotensoFrameBuilder::set_vertical_vane_position(
 
   ESP_LOGD(
       TAG,
-      "Vane position: %s -> byte[32]=0x%02X%s",
+      "Vertical vane position: %s -> byte[32]=0x%02X%s",
       position.c_str(),
       frame_[32],
       vertical_vane_position_needs_move_bit(position)
@@ -373,7 +388,7 @@ void RotensoFrameBuilder::set_fan_speed(
 
   ESP_LOGD(
       TAG,
-      "Fan mode set in ESPHome: %s -> Frame byte[10] = 0x%02X",
+      "Fan mode: %s -> Frame byte[10] = 0x%02X",
       climate::climate_fan_mode_to_string(fan_mode),
       frame_[10]);
 }

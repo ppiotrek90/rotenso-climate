@@ -14,6 +14,9 @@ rotenso_ns = cg.esphome_ns.namespace("rotenso")
 RotensoAntiMildewSwitch = rotenso_ns.class_(
     "RotensoAntiMildewSwitch", switch.Switch
 )
+RotensoHealthSwitch = rotenso_ns.class_(
+    "RotensoHealthSwitch", switch.Switch
+)
 RotensoBuzzerSwitch = rotenso_ns.class_(
     "RotensoBuzzerSwitch", switch.Switch
 )
@@ -30,6 +33,13 @@ ANTI_MILDEW_SCHEMA = switch.switch_schema(RotensoAntiMildewSwitch).extend(
         cv.Optional(CONF_FUNCTION, default="anti_mildew"): cv.one_of(
             "anti_mildew", lower=True
         ),
+    }
+)
+
+HEALTH_SCHEMA = switch.switch_schema(RotensoHealthSwitch).extend(
+    {
+        cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(RotensoClimate),
+        cv.Required(CONF_FUNCTION): cv.one_of("health", lower=True),
     }
 )
 
@@ -52,6 +62,8 @@ def _rotenso_switch_schema(value):
     if not isinstance(value, dict):
         raise cv.Invalid("value must be a dictionary")
     function = str(value.get(CONF_FUNCTION, "anti_mildew")).lower()
+    if function == "health":
+        return HEALTH_SCHEMA(value)
     if function == "buzzer":
         return BUZZER_SCHEMA(value)
     if function == "display":
@@ -70,7 +82,9 @@ async def to_code(config):
     cg.add(var.set_parent(parent))
 
     function = config[CONF_FUNCTION]
-    if function == "buzzer":
+    if function == "health":
+        cg.add(parent.set_health_switch(var))
+    elif function == "buzzer":
         cg.add(parent.set_buzzer_switch(var))
     elif function == "display":
         cg.add(parent.set_display_switch(var))

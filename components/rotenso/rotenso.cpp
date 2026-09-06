@@ -157,6 +157,9 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   if (this->anti_mildew_state_valid_) {
     builder.set_anti_mildew(this->anti_mildew_state_);
   }
+  if (this->health_state_valid_) {
+    builder.set_health(this->health_state_);
+  }
   if (this->buzzer_state_valid_) {
     builder.set_buzzer(this->buzzer_state_);
   }
@@ -205,6 +208,28 @@ void RotensoClimate::control_anti_mildew(bool state) {
 
   if (this->anti_mildew_switch_ != nullptr) {
     this->anti_mildew_switch_->publish_state(state);
+  }
+
+  this->send_current_state_frame_();
+}
+
+void RotensoHealthSwitch::write_state(bool state) {
+  if (this->parent_ == nullptr) {
+    ESP_LOGW("rotenso.climate", "Health switch has no parent");
+    return;
+  }
+
+  this->parent_->control_health(state);
+}
+
+void RotensoClimate::control_health(bool state) {
+  ESP_LOGI(TAG, "Health set to: %s", state ? "On" : "Off");
+
+  this->health_state_ = state;
+  this->health_state_valid_ = true;
+
+  if (this->health_switch_ != nullptr) {
+    this->health_switch_->publish_state(state);
   }
 
   this->send_current_state_frame_();
@@ -337,6 +362,9 @@ void RotensoClimate::send_current_state_frame_() {
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
   if (this->anti_mildew_state_valid_) {
     builder.set_anti_mildew(this->anti_mildew_state_);
+  }
+  if (this->health_state_valid_) {
+    builder.set_health(this->health_state_);
   }
   if (this->buzzer_state_valid_) {
     builder.set_buzzer(this->buzzer_state_);
@@ -705,6 +733,15 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
   this->anti_mildew_state_valid_ = true;
   if (this->anti_mildew_switch_ != nullptr) {
     this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
+  }
+
+  // Health has a confirmed RX status bit: heartbeat byte[9] bit 0x04.
+  // Synchronize from every heartbeat so physical-remote changes are also
+  // reflected in Home Assistant. publish_state() does not send a frame back.
+  this->health_state_ = parsed.health;
+  this->health_state_valid_ = true;
+  if (this->health_switch_ != nullptr) {
+    this->health_switch_->publish_state(parsed.health);
   }
 
   this->display_state_ = parsed.display;

@@ -48,6 +48,16 @@ class RotensoAntiMildewSwitch : public switch_::Switch {
   RotensoClimate *parent_{nullptr};
 };
 
+class RotensoHealthSwitch : public switch_::Switch {
+ public:
+  void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
+
+ protected:
+  void write_state(bool state) override;
+
+  RotensoClimate *parent_{nullptr};
+};
+
 class RotensoBuzzerSwitch : public switch_::Switch {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -91,6 +101,9 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void set_anti_mildew_switch(switch_::Switch *s) {
     this->anti_mildew_switch_ = s;
   }
+  void set_health_switch(switch_::Switch *s) {
+    this->health_switch_ = s;
+  }
   void set_buzzer_switch(switch_::Switch *s) {
     this->buzzer_switch_ = s;
   }
@@ -99,6 +112,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   }
 
   void control_anti_mildew(bool state);
+  void control_health(bool state);
   void control_buzzer(bool state);
   void control_display(bool state);
 
@@ -160,6 +174,9 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   // remote can change these settings while ESPHome is offline.
   bool anti_mildew_state_{false};
   bool anti_mildew_state_valid_{false};
+  switch_::Switch *health_switch_{nullptr};
+  bool health_state_{false};
+  bool health_state_valid_{false};
   switch_::Switch *buzzer_switch_{nullptr};
   bool buzzer_state_{true};
   bool buzzer_state_valid_{true};

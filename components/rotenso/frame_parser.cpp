@@ -131,10 +131,6 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
   float temperature = 16 + static_cast<float>(temp_whole);
 
   // Half-degree temperature flag.
-  //
-  // Bit 0x02 indicates .5°C. Other bits in this byte can be
-  // used simultaneously by other functions, e.g. anti-mildew.
-  // Therefore check the bit itself instead of comparing the whole nibble.
   if ((temp_decimal_byte & 0x02) != 0) {
     temperature += 0.5f;
   }
@@ -160,6 +156,9 @@ ParsedClimateState parse_heartbeat(const std::vector<uint8_t> &buffer) {
 
   // Display status.
   result.display = (buffer[7] & 0x20) != 0;
+
+  // Health status.
+  result.health = (buffer[9] & 0x04) != 0;
 
   // Vane positions.
   result.vertical_vane_position_raw = buffer[51];

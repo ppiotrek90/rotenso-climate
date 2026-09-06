@@ -29,6 +29,10 @@ class RotensoFrameBuilder {
   // real hardware (captured from the genuine Tuya module's own traffic).
   void set_anti_mildew(bool enabled);
 
+  // Apply Health on/off - byte 8 bit 0x10. Confirmed in dedicated
+  // ON/OFF captures.
+  void set_health(bool enabled);
+
   // Apply buzzer on/off - byte 7 bit 0x20. CONFIRMED working against real
   // hardware (captured from the genuine Tuya module's own traffic).
   void set_buzzer(bool enabled);

@@ -21,6 +21,8 @@ struct ParsedClimateState {
     bool anti_mildew;
     // Display status
     bool display;
+    // Health status
+    bool health;
     // Vane position
     uint8_t vertical_vane_position_raw;
     // Horizontal vane
