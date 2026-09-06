@@ -116,7 +116,7 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void update_swing_mode_();
   bool pending_timed_out_(uint32_t sent_at) const;
 
-  static constexpr uint32_t PENDING_TIMEOUT_MS = 5000;
+  static constexpr uint32_t PENDING_TIMEOUT_MS = 2000;
   static constexpr size_t HEARTBEAT_FRAME_SIZE = 61;
   static constexpr size_t UART_RX_BUFFER_MAX = 256;
 
