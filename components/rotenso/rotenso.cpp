@@ -556,7 +556,7 @@ void RotensoClimate::parse_uart_response() {
   }
 
   if (bytes_read > 0) {
-    ESP_LOGD(TAG, "UART RX chunk (%u bytes): %s",
+    ESP_LOGVV(TAG, "UART RX chunk (%u bytes): %s",
              static_cast<unsigned>(bytes_read), format_hex_frame(rx_chunk).c_str());
   }
 
