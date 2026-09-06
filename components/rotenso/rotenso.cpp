@@ -4,11 +4,29 @@
 #include "esphome/core/log.h"
 
 #include <cmath>
+#include <cstdio>
+#include <string>
+
 
 namespace esphome {
 namespace rotenso {
 
 static const char *const TAG = "rotenso.climate";
+
+static std::string format_hex_frame(const uint8_t *data, size_t size) {
+  std::string line;
+  line.reserve(size * 5);
+  char hex[6];
+  for (size_t i = 0; i < size; i++) {
+    snprintf(hex, sizeof(hex), "0x%02X ", data[i]);
+    line += hex;
+  }
+  return line;
+}
+
+static std::string format_hex_frame(const std::vector<uint8_t> &data) {
+  return format_hex_frame(data.data(), data.size());
+}
 
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
@@ -337,7 +355,7 @@ void RotensoClimate::send_current_state_frame_() {
     log_line += byte_str;
   }
 
-  ESP_LOGD(TAG, "VANE FRAME: %s", log_line.c_str());
+  ESP_LOGD(TAG, "VANE frame: %s", log_line.c_str());
   this->write_array(frame.data(), frame.size());
 }
 
@@ -506,11 +524,12 @@ void RotensoClimate::update_swing_mode_() {
 }
 
 void RotensoClimate::send_heartbeat() {
-  ESP_LOGD(TAG, "Sending UART heartbeat");
-
   static const uint8_t heartbeat_packet[] = {
       0xBB, 0x00, 0x01, 0x04,
       0x02, 0x01, 0x00, 0xBD};
+
+  ESP_LOGD(TAG, "Sending UART TX heartbeat: %s",
+           format_hex_frame(heartbeat_packet, sizeof(heartbeat_packet)).c_str());
 
   this->write_array(
       heartbeat_packet,
@@ -524,12 +543,21 @@ void RotensoClimate::send_heartbeat() {
 void RotensoClimate::parse_uart_response() {
   // Read everything currently available. Frames may arrive split across
   // multiple loop iterations or several frames may already be queued.
+  size_t bytes_read = 0;
+  std::vector<uint8_t> rx_chunk;
   while (this->available() > 0) {
     uint8_t byte;
     if (!this->read_byte(&byte)) {
       break;
     }
     this->uart_rx_buffer_.push_back(byte);
+    rx_chunk.push_back(byte);
+    bytes_read++;
+  }
+
+  if (bytes_read > 0) {
+    ESP_LOGD(TAG, "UART RX chunk (%u bytes): %s",
+             static_cast<unsigned>(bytes_read), format_hex_frame(rx_chunk).c_str());
   }
 
   if (this->uart_rx_buffer_.size() > UART_RX_BUFFER_MAX) {
@@ -583,6 +611,8 @@ void RotensoClimate::parse_uart_response() {
 
     this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
                                 this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+
+    ESP_LOGD(TAG, "Receiving UART RX heartbeat: %s", format_hex_frame(frame).c_str());
     this->process_heartbeat_frame_(frame);
   }
 }
