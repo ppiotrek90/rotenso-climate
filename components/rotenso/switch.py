@@ -24,9 +24,6 @@ RotensoDisplaySwitch = rotenso_ns.class_(
     "RotensoDisplaySwitch", switch.Switch
 )
 
-# The C++ class (and so the declared type of CONF_ID) must be fixed at
-# schema-definition time - see select.py for the full explanation of why
-# this can't be done via an extra new_Pvariable() argument instead.
 ANTI_MILDEW_SCHEMA = switch.switch_schema(RotensoAntiMildewSwitch).extend(
     {
         cv.GenerateID(CONF_ROTENSO_ID): cv.use_id(RotensoClimate),

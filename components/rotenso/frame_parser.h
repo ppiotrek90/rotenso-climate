@@ -13,19 +13,19 @@ struct ParsedClimateState {
     float temperature;
     float current_temperature;
     esphome::climate::ClimatePreset preset = esphome::climate::CLIMATE_PRESET_NONE;
-    // Diagnostic-only
+    // Diagnostic-only.
     float coil_temperature;
-    // Diagnostic-only
+    // Diagnostic-only.
     uint8_t error_code;
-    // Anti-mildew
+    // Anti-mildew.
     bool anti_mildew;
-    // Display status
+    // Display status.
     bool display;
-    // Health status
+    // Health status.
     bool health;
-    // Vane position
+    // Vertical vane position.
     uint8_t vertical_vane_position_raw;
-    // Horizontal vane
+    // Horizontal vane position.
     uint8_t horizontal_vane_position_raw;
 };
       

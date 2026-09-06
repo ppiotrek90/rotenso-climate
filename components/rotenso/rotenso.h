@@ -18,6 +18,7 @@ namespace rotenso {
 
 class RotensoClimate;
 
+// Vertical vane position select.
 class RotensoVerticalVaneSelect : public select::Select {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -28,6 +29,7 @@ class RotensoVerticalVaneSelect : public select::Select {
   RotensoClimate *parent_{nullptr};
 };
 
+// Horizontal vane position select.
 class RotensoHorizontalVaneSelect : public select::Select {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -38,6 +40,7 @@ class RotensoHorizontalVaneSelect : public select::Select {
   RotensoClimate *parent_{nullptr};
 };
 
+// Anti-mildew control switch.
 class RotensoAntiMildewSwitch : public switch_::Switch {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -48,6 +51,7 @@ class RotensoAntiMildewSwitch : public switch_::Switch {
   RotensoClimate *parent_{nullptr};
 };
 
+// Health / air purification control switch.
 class RotensoHealthSwitch : public switch_::Switch {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -58,6 +62,7 @@ class RotensoHealthSwitch : public switch_::Switch {
   RotensoClimate *parent_{nullptr};
 };
 
+// Buzzer control switch.
 class RotensoBuzzerSwitch : public switch_::Switch {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -68,6 +73,7 @@ class RotensoBuzzerSwitch : public switch_::Switch {
   RotensoClimate *parent_{nullptr};
 };
 
+// Indoor unit display control switch.
 class RotensoDisplaySwitch : public switch_::Switch {
  public:
   void set_parent(RotensoClimate *parent) { this->parent_ = parent; }
@@ -94,19 +100,30 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void control_vertical_vane(size_t index);
   void control_horizontal_vane(size_t index);
 
+  void set_coil_temperature_sensor(sensor::Sensor *s) {
+    this->coil_temperature_sensor_ = s;
+  }
 
-  void set_coil_temperature_sensor(sensor::Sensor *s) { this->coil_temperature_sensor_ = s; }
-  void set_room_temperature_sensor(sensor::Sensor *s) { this->room_temperature_sensor_ = s; }
-  void set_error_binary_sensor(binary_sensor::BinarySensor *s) { this->error_binary_sensor_ = s; }
+  void set_room_temperature_sensor(sensor::Sensor *s) {
+    this->room_temperature_sensor_ = s;
+  }
+
+  void set_error_binary_sensor(binary_sensor::BinarySensor *s) {
+    this->error_binary_sensor_ = s;
+  }
+
   void set_anti_mildew_switch(switch_::Switch *s) {
     this->anti_mildew_switch_ = s;
   }
+
   void set_health_switch(switch_::Switch *s) {
     this->health_switch_ = s;
   }
+
   void set_buzzer_switch(switch_::Switch *s) {
     this->buzzer_switch_ = s;
   }
+
   void set_display_switch(switch_::Switch *s) {
     this->display_switch_ = s;
   }
@@ -130,35 +147,49 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   void update_swing_mode_();
   bool pending_timed_out_(uint32_t sent_at) const;
 
+  // Maximum time to keep an ESPHome change before accepting AC feedback.
   static constexpr uint32_t PENDING_TIMEOUT_MS = 2000;
+
+  // Expected RX heartbeat frame size.
   static constexpr size_t HEARTBEAT_FRAME_SIZE = 61;
+
+  // Protection against incomplete or corrupted UART data.
   static constexpr size_t UART_RX_BUFFER_MAX = 256;
 
+  // Buffer for assembling complete UART frames.
   std::vector<uint8_t> uart_rx_buffer_;
 
+  // Current vertical vane position.
   std::string vertical_vane_position_{"Off"};
   select::Select *vertical_vane_select_{nullptr};
   size_t last_published_vertical_vane_index_{99};
+
+  // Current horizontal vane position.
   std::string horizontal_vane_position_{"Off"};
   select::Select *horizontal_vane_select_{nullptr};
   size_t last_published_horizontal_vane_index_{99};
 
+  // Pending target temperature waiting for AC confirmation.
   bool pending_target_temperature_valid_{false};
   float pending_target_temperature_{0.0f};
   uint32_t pending_target_temperature_sent_at_{0};
 
+  // Pending climate mode waiting for AC confirmation.
   bool pending_mode_valid_{false};
   climate::ClimateMode pending_mode_{climate::CLIMATE_MODE_OFF};
   uint32_t pending_mode_sent_at_{0};
 
+  // Pending fan mode waiting for AC confirmation.
   bool pending_fan_mode_valid_{false};
   climate::ClimateFanMode pending_fan_mode_{climate::CLIMATE_FAN_AUTO};
   uint32_t pending_fan_mode_sent_at_{0};
 
+  // Pending vertical vane position waiting for AC confirmation.
   bool pending_vertical_vane_valid_{false};
   std::string pending_vertical_vane_position_{"Off"};
   uint32_t pending_vertical_vane_sent_at_{0};
 
+  // Pending horizontal vane position waiting for AC confirmation.
   bool pending_horizontal_vane_valid_{false};
   std::string pending_horizontal_vane_position_{"Off"};
   uint32_t pending_horizontal_vane_sent_at_{0};
@@ -168,18 +199,23 @@ class RotensoClimate : public climate::Climate, public Component, public uart::U
   sensor::Sensor *coil_temperature_sensor_{nullptr};
   sensor::Sensor *room_temperature_sensor_{nullptr};
   binary_sensor::BinarySensor *error_binary_sensor_{nullptr};
+
+  // Anti-mildew state is unknown until reported by the AC.
   switch_::Switch *anti_mildew_switch_{nullptr};
-  // Feature state is unknown until the AC reports it or the user changes it.
-  // We deliberately do not assign startup defaults because the physical
-  // remote can change these settings while ESPHome is offline.
   bool anti_mildew_state_{false};
   bool anti_mildew_state_valid_{false};
+
+  // Health state is unknown until reported by the AC.
   switch_::Switch *health_switch_{nullptr};
   bool health_state_{false};
   bool health_state_valid_{false};
+
+  // Buzzer defaults to ON until the state can be confirmed.
   switch_::Switch *buzzer_switch_{nullptr};
   bool buzzer_state_{true};
   bool buzzer_state_valid_{true};
+
+  // Display state is unknown until reported by the AC.
   switch_::Switch *display_switch_{nullptr};
   bool display_state_{false};
   bool display_state_valid_{false};

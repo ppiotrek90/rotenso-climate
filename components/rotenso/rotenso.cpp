@@ -7,7 +7,6 @@
 #include <cstdio>
 #include <string>
 
-
 namespace esphome {
 namespace rotenso {
 
@@ -31,8 +30,7 @@ static std::string format_hex_frame(const std::vector<uint8_t> &data) {
 void RotensoClimate::setup() {
   ESP_LOGI(TAG, "Rotenso climate setup complete");
 
-  // Buzzer state is not available in the RX status frame. Keep a safe,
-  // explicit default and expose it immediately after startup.
+  // Publish default buzzer state.
   if (this->buzzer_switch_ != nullptr) {
     this->buzzer_switch_->publish_state(this->buzzer_state_);
   }
@@ -45,13 +43,11 @@ void RotensoClimate::setup() {
 }
 
 void RotensoClimate::loop() {
-  // Drain UART immediately and let the frame buffer reassemble partial,
-  // concatenated or back-to-back responses.
+  // Read available UART data.
   if (this->available() > 0) {
     this->parse_uart_response();
   }
 }
-
 
 climate::ClimateTraits RotensoClimate::traits() {
   auto traits = climate::ClimateTraits();
@@ -143,6 +139,7 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
     if (this->vertical_vane_select_ != nullptr) {
       this->vertical_vane_select_->publish_state(this->last_published_vertical_vane_index_);
     }
+
     this->last_published_horizontal_vane_index_ = static_cast<size_t>(want_horizontal ? 6 : 0);
     if (this->horizontal_vane_select_ != nullptr) {
       this->horizontal_vane_select_->publish_state(this->last_published_horizontal_vane_index_);
@@ -154,15 +151,19 @@ void RotensoClimate::control(const climate::ClimateCall &call) {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+
   if (this->anti_mildew_state_valid_) {
     builder.set_anti_mildew(this->anti_mildew_state_);
   }
+
   if (this->health_state_valid_) {
     builder.set_health(this->health_state_);
   }
+
   if (this->buzzer_state_valid_) {
     builder.set_buzzer(this->buzzer_state_);
   }
+
   if (this->display_state_valid_) {
     builder.set_display(this->display_state_);
   }
@@ -280,9 +281,7 @@ void RotensoClimate::control_display(bool state) {
 }
 
 void RotensoClimate::control_vertical_vane(size_t index) {
-  // Select option indices:
-  // 0 Off, 1 Top, 2 Upper, 3 Mid, 4 Lower, 5 Bottom,
-  // 6 Move Full, 7 Move Upper, 8 Move Lower, 9 Unknown.
+  // 0 Off, 1 Top, 2 Upper, 3 Mid, 4 Lower, 5 Bottom, 6-8 Move, 9 Unknown.
   if (index > 9) {
     ESP_LOGW(TAG, "Invalid vertical vane select index: %u", static_cast<unsigned>(index));
     return;
@@ -317,9 +316,7 @@ void RotensoClimate::control_vertical_vane(size_t index) {
 }
 
 void RotensoClimate::control_horizontal_vane(size_t index) {
-  // Select option indices:
-  // 0 Off, 1 Left, 2 Mid-left, 3 Mid, 4 Mid-right, 5 Right,
-  // 6 Move Full, 7 Move Left, 8 Move Mid, 9 Move Right, 10 Unknown.
+  // 0 Off, 1-5 Positions, 6-9 Move, 10 Unknown.
   if (index > 10) {
     ESP_LOGW(TAG, "Invalid horizontal vane select index: %u", static_cast<unsigned>(index));
     return;
@@ -360,15 +357,19 @@ void RotensoClimate::send_current_state_frame_() {
   builder.from_climate_state(this, call);
   builder.set_vertical_vane_position(this->vertical_vane_position_);
   builder.set_horizontal_vane_position(this->horizontal_vane_position_);
+
   if (this->anti_mildew_state_valid_) {
     builder.set_anti_mildew(this->anti_mildew_state_);
   }
+
   if (this->health_state_valid_) {
     builder.set_health(this->health_state_);
   }
+
   if (this->buzzer_state_valid_) {
     builder.set_buzzer(this->buzzer_state_);
   }
+
   if (this->display_state_valid_) {
     builder.set_display(this->display_state_);
   }
@@ -383,12 +384,11 @@ void RotensoClimate::send_current_state_frame_() {
     log_line += byte_str;
   }
 
-  ESP_LOGD(TAG, "VANE frame: %s", log_line.c_str());
+  ESP_LOGD(TAG, "Vane frame: %s", log_line.c_str());
   this->write_array(frame.data(), frame.size());
 }
 
 void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
-
   uint8_t mv = (raw >> 3) & 0x03;
   uint8_t pos = raw & 0x07;
 
@@ -438,6 +438,7 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
     }
   }
 
+  // Keep pending state until confirmed or timed out.
   if (this->pending_vertical_vane_valid_) {
     if (position == this->pending_vertical_vane_position_) {
       this->pending_vertical_vane_valid_ = false;
@@ -459,7 +460,6 @@ void RotensoClimate::publish_vertical_vane_state_(uint8_t raw) {
 }
 
 void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
-
   uint8_t mv = (raw >> 3) & 0x07;
   uint8_t pos = raw & 0x07;
 
@@ -512,6 +512,7 @@ void RotensoClimate::publish_horizontal_vane_state_(uint8_t raw) {
     }
   }
 
+  // Keep pending state until confirmed or timed out.
   if (this->pending_horizontal_vane_valid_) {
     if (position == this->pending_horizontal_vane_position_) {
       this->pending_horizontal_vane_valid_ = false;
@@ -569,15 +570,17 @@ void RotensoClimate::send_heartbeat() {
 }
 
 void RotensoClimate::parse_uart_response() {
-  // Read everything currently available. Frames may arrive split across
-  // multiple loop iterations or several frames may already be queued.
+  // Read all currently available UART bytes.
   size_t bytes_read = 0;
   std::vector<uint8_t> rx_chunk;
+
   while (this->available() > 0) {
     uint8_t byte;
+
     if (!this->read_byte(&byte)) {
       break;
     }
+
     this->uart_rx_buffer_.push_back(byte);
     rx_chunk.push_back(byte);
     bytes_read++;
@@ -588,9 +591,11 @@ void RotensoClimate::parse_uart_response() {
              static_cast<unsigned>(bytes_read), format_hex_frame(rx_chunk).c_str());
   }
 
+  // Limit RX buffer size.
   if (this->uart_rx_buffer_.size() > UART_RX_BUFFER_MAX) {
     ESP_LOGW(TAG, "UART RX buffer overflow (%u bytes), resynchronizing",
              static_cast<unsigned>(this->uart_rx_buffer_.size()));
+
     this->uart_rx_buffer_.erase(
         this->uart_rx_buffer_.begin(),
         this->uart_rx_buffer_.end() - HEARTBEAT_FRAME_SIZE);
@@ -598,6 +603,8 @@ void RotensoClimate::parse_uart_response() {
 
   while (true) {
     size_t start = 0;
+
+    // Find heartbeat frame header.
     while (start + 3 < this->uart_rx_buffer_.size() &&
            !(this->uart_rx_buffer_[start] == 0xBB &&
              this->uart_rx_buffer_[start + 1] == 0x01 &&
@@ -607,46 +614,58 @@ void RotensoClimate::parse_uart_response() {
     }
 
     if (start + 3 >= this->uart_rx_buffer_.size()) {
-      // Keep a possible start byte for the next UART chunk.
+      // Keep a possible frame start.
       if (!this->uart_rx_buffer_.empty() && this->uart_rx_buffer_.back() == 0xBB) {
-        this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
-                                    this->uart_rx_buffer_.end() - 1);
+        this->uart_rx_buffer_.erase(
+            this->uart_rx_buffer_.begin(),
+            this->uart_rx_buffer_.end() - 1);
       } else {
         this->uart_rx_buffer_.clear();
       }
+
       return;
     }
 
     if (start > 0) {
       ESP_LOGD(TAG, "Discarding %u non-heartbeat UART bytes while resynchronizing",
                static_cast<unsigned>(start));
-      this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
-                                  this->uart_rx_buffer_.begin() + start);
+
+      this->uart_rx_buffer_.erase(
+          this->uart_rx_buffer_.begin(),
+          this->uart_rx_buffer_.begin() + start);
     }
 
+    // Wait for the complete heartbeat frame.
     if (this->uart_rx_buffer_.size() < HEARTBEAT_FRAME_SIZE) {
       return;
     }
 
-    std::vector<uint8_t> frame(this->uart_rx_buffer_.begin(),
-                               this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+    std::vector<uint8_t> frame(
+        this->uart_rx_buffer_.begin(),
+        this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+
     auto parsed = parse_heartbeat(frame);
+
     if (!parsed.valid) {
       ESP_LOGW(TAG, "Invalid heartbeat frame, resynchronizing UART stream");
       this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin());
       continue;
     }
 
-    this->uart_rx_buffer_.erase(this->uart_rx_buffer_.begin(),
-                                this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
+    this->uart_rx_buffer_.erase(
+        this->uart_rx_buffer_.begin(),
+        this->uart_rx_buffer_.begin() + HEARTBEAT_FRAME_SIZE);
 
-    ESP_LOGD(TAG, "Receiving UART RX heartbeat: %s", format_hex_frame(frame).c_str());
+    ESP_LOGD(TAG, "Receiving UART RX heartbeat: %s",
+             format_hex_frame(frame).c_str());
+
     this->process_heartbeat_frame_(frame);
   }
 }
 
 void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame) {
   auto parsed = parse_heartbeat(frame);
+
   if (!parsed.valid) {
     return;
   }
@@ -658,6 +677,7 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
   optional<climate::ClimatePreset> old_preset = this->preset;
   climate::ClimateSwingMode old_swing_mode = this->swing_mode;
 
+  // Keep mode pending until confirmed or timed out.
   if (this->pending_mode_valid_) {
     if (parsed.mode == this->pending_mode_) {
       this->pending_mode_valid_ = false;
@@ -670,6 +690,7 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
     this->mode = parsed.mode;
   }
 
+  // Keep temperature pending until confirmed or timed out.
   if (this->pending_target_temperature_valid_) {
     if (fabsf(parsed.temperature - this->pending_target_temperature_) < 0.01f) {
       this->pending_target_temperature_valid_ = false;
@@ -682,6 +703,7 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
     this->target_temperature = parsed.temperature;
   }
 
+  // Keep fan mode pending until confirmed or timed out.
   if (this->pending_fan_mode_valid_) {
     if (parsed.fan_mode == this->pending_fan_mode_) {
       this->pending_fan_mode_valid_ = false;
@@ -693,17 +715,12 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
   } else {
     this->fan_mode = parsed.fan_mode;
   }
-  this->current_temperature = parsed.current_temperature;
-  // NOTE: deliberately NOT syncing this->preset from parsed.preset here.
-  // That READ-side decode (state_nibble in the STATUS frame) was never
-  // independently confirmed and appears unreliable specifically for
-  // ECO - it kept reporting ECO even after we sent the confirmed OFF
-  // bit, silently reverting the user's own choice on the very next
-  // heartbeat (the exact same bug we already fixed for anti-mildew).
-  // preset is now purely a sticky, software-owned value like the vane
-  // positions/anti-mildew/buzzer/display - only changed via control().
 
-  // byte[51] is the reported vertical vane position.
+  this->current_temperature = parsed.current_temperature;
+
+  // Preset RX decoding is unreliable, so keep the software state.
+  
+  // Update vane positions from RX bytes.
   this->publish_vertical_vane_state_(parsed.vertical_vane_position_raw);
   this->publish_horizontal_vane_state_(parsed.horizontal_vane_position_raw);
 
@@ -724,28 +741,26 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
         parsed.error_code != 0);
   }
 
-  // Anti-mildew and display have confirmed RX status bits. Always
-  // synchronize both software states and HA switches from the latest
-  // heartbeat so changes made with the physical remote are reflected too.
-  // publish_state() updates HA only and does not call write_state(), so
-  // receiving a remote change never sends a frame back to the AC.
+  // Sync anti-mildew state from heartbeat.
   this->anti_mildew_state_ = parsed.anti_mildew;
   this->anti_mildew_state_valid_ = true;
+
   if (this->anti_mildew_switch_ != nullptr) {
     this->anti_mildew_switch_->publish_state(parsed.anti_mildew);
   }
 
-  // Health has a confirmed RX status bit: heartbeat byte[9] bit 0x04.
-  // Synchronize from every heartbeat so physical-remote changes are also
-  // reflected in Home Assistant. publish_state() does not send a frame back.
+  // Sync Health state from heartbeat.
   this->health_state_ = parsed.health;
   this->health_state_valid_ = true;
+
   if (this->health_switch_ != nullptr) {
     this->health_switch_->publish_state(parsed.health);
   }
 
+  // Sync display state from heartbeat.
   this->display_state_ = parsed.display;
   this->display_state_valid_ = true;
+
   if (this->display_switch_ != nullptr) {
     this->display_switch_->publish_state(parsed.display);
   }
@@ -762,7 +777,6 @@ void RotensoClimate::process_heartbeat_frame_(const std::vector<uint8_t> &frame)
     this->publish_state();
   }
 }
-
 
 }  // namespace rotenso
 }  // namespace esphome

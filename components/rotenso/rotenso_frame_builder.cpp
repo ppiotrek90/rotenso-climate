@@ -36,18 +36,18 @@ bool RotensoFrameBuilder::vertical_vane_position_needs_move_bit(
 
 RotensoFrameBuilder::RotensoFrameBuilder() {
   frame_ = {
-      0xBB,  // 0
+      0xBB,  // 0 - Header
       0x00,  // 1
       0x01,  // 2
-      0x03,  // 3
-      0x21,  // 4
+      0x03,  // 3 - Frame type
+      0x21,  // 4 - Command
       0x00,  // 5
       0x00,  // 6
-      0x00,  // 7 - Power / Buzzer / Display / ECO bits are applied explicitly
-      0x00,  // 8 - Preset + Mode
-      0x18,  // 9 - Temperature placeholder
-      0x00,  // 10 - Fan / Move bits
-      0x00,  // 11
+      0x00,  // 7 - Power / Buzzer / Display / ECO
+      0x00,  // 8 - Mode / Preset / Anti-mildew / Health
+      0x18,  // 9 - Temperature
+      0x00,  // 10 - Fan speed
+      0x00,  // 11 - Half degree / Horizontal movement
       0x00,  // 12
       0x00,  // 13
       0x00,  // 14
@@ -55,7 +55,7 @@ RotensoFrameBuilder::RotensoFrameBuilder() {
       0x00,  // 16
       0x00,  // 17
       0x00,  // 18
-      0x00,  // 19
+      0x00,  // 19 - Sleep
       0x00,  // 20
       0x00,  // 21
       0x00,  // 22
@@ -69,12 +69,12 @@ RotensoFrameBuilder::RotensoFrameBuilder() {
       0x00,  // 30
       0x00,  // 31
       0x00,  // 32 - Vertical vane
-      0x00,  // 33
+      0x00,  // 33 - Horizontal vane
       0x00,  // 34
       0x00,  // 35
       0x00,  // 36
       0x00,  // 37
-      0x00   // 38 - checksum
+      0x00   // 38 - XOR checksum
   };
 }
 
@@ -87,10 +87,10 @@ void RotensoFrameBuilder::from_climate_state(
   float target_temp =
       climate->target_temperature;
 
-  // Power.
+  // Set power state.
   frame_[7] = encode_power(is_on);
 
-  // Mode + preset.
+  // Set mode and preset.
   climate::ClimatePreset preset =
       climate->preset.has_value()
           ? *climate->preset
@@ -99,19 +99,18 @@ void RotensoFrameBuilder::from_climate_state(
   frame_[8] =
       encode_mode_preset(climate->mode, preset);
 
-  // Eco preset - byte[7] bit 0x80. CONFIRMED against real hardware
-  // (captured from the genuine Tuya module's own traffic).
+  // Set ECO bit in byte[7].
   if (preset == climate::CLIMATE_PRESET_ECO) {
     frame_[7] |= 0x80;
   }
 
-  // Sleep preset
+  // Set sleep state.
   frame_[19] =
       (preset == climate::CLIMATE_PRESET_SLEEP)
           ? 0x01
           : 0x00;
 
-  // Fan.
+  // Set fan speed.
   climate::ClimateFanMode fan_mode =
       call.get_fan_mode().value_or(
           climate->fan_mode.has_value()
@@ -120,15 +119,12 @@ void RotensoFrameBuilder::from_climate_state(
 
   set_fan_speed(fan_mode);
 
-  // Target temperature.
+  // Set target temperature.
   encode_temperature(target_temp);
-
 }
 
 void RotensoFrameBuilder::set_anti_mildew(bool enabled) {
-  // CONFIRMED working against real hardware, captured from the genuine
-  // Tuya module's own traffic: byte[8] bit 0x20, independent of the
-  // preset bits already occupying that nibble (None/Comfort/Boost/Eco).
+  // Byte[8] bit 0x20.
   if (enabled) {
     frame_[8] |= 0x20;
   } else {
@@ -143,7 +139,7 @@ void RotensoFrameBuilder::set_anti_mildew(bool enabled) {
 }
 
 void RotensoFrameBuilder::set_health(bool enabled) {
-  // Confirmed from dedicated Health ON/OFF captures: TX byte[8] bit 0x10.
+  // Byte[8] bit 0x10.
   if (enabled) {
     frame_[8] |= 0x10;
   } else {
@@ -164,10 +160,8 @@ void RotensoFrameBuilder::set_vertical_vane_position(
 
   frame_[32] = vane_byte;
 
+  // Preserve fan bits and enable vertical movement.
   if (vertical_vane_position_needs_move_bit(position)) {
-    // IMPORTANT:
-    // byte[10] already contains the fan setting.
-    // OR 0x38 instead of replacing byte[10].
     frame_[10] |= 0x38;
   }
 
@@ -195,7 +189,6 @@ static const std::unordered_map<std::string, uint8_t> HORIZONTAL_VANE_BYTES = {
 
 uint8_t RotensoFrameBuilder::horizontal_vane_position_to_byte(
     const std::string &position) {
-  // CONFIRMED against real hardware: byte 33, bits 0-2 = fix, bits 3-5 = mv.
   auto it = HORIZONTAL_VANE_BYTES.find(position);
   return it != HORIZONTAL_VANE_BYTES.end() ? it->second : 0x00;
 }
@@ -212,11 +205,7 @@ void RotensoFrameBuilder::set_horizontal_vane_position(
     const std::string &position) {
   frame_[33] = horizontal_vane_position_to_byte(position);
 
-  // CONFIRMED against real hardware: byte[11] bit 0x08 is the horizontal
-  // movement enable bit. Must be CLEARED for a fixed position and SET for
-  // the "Move" sub-modes. byte[11] also carries the whole/half-degree
-  // temperature bit set earlier by encode_temperature() - only touch
-  // bit 0x08 here.
+  // Byte[11] bit 0x08 enables horizontal movement.
   if (horizontal_vane_position_needs_move_bit(position)) {
     frame_[11] |= 0x08;
   } else {
@@ -231,17 +220,14 @@ void RotensoFrameBuilder::set_horizontal_vane_position(
       frame_[11]);
 }
 
-
 uint8_t RotensoFrameBuilder::encode_power(
     bool power) {
-  // CONFIRMED against real hardware: byte[7] bit 0x04 is the actual power
-  // bit. The old 0x60/0x64 constants baked in bits 0x20 (buzzer) and 0x40
-  // (display) as always-on, which we now control independently instead.
+  // Byte[7] bit 0x04.
   return power ? 0x04 : 0x00;
 }
 
 void RotensoFrameBuilder::set_buzzer(bool enabled) {
-  // CONFIRMED against real hardware: byte[7] bit 0x20.
+  // Byte[7] bit 0x20.
   if (enabled) {
     frame_[7] |= 0x20;
   } else {
@@ -250,7 +236,7 @@ void RotensoFrameBuilder::set_buzzer(bool enabled) {
 }
 
 void RotensoFrameBuilder::set_display(bool enabled) {
-  // CONFIRMED against real hardware: byte[7] bit 0x40.
+  // Byte[7] bit 0x40.
   if (enabled) {
     frame_[7] |= 0x40;
   } else {
@@ -269,18 +255,11 @@ uint8_t RotensoFrameBuilder::encode_mode_preset(
       break;
 
     case climate::CLIMATE_PRESET_ECO:
-      // NOTE: this preset_val=0x8 (byte[8] upper nibble) was NEVER
-      // confirmed against real hardware - it was inherited, unverified,
-      // from the original repo. A real capture now confirms ECO is
-      // actually byte[7] bit 0x80 (handled separately in
-      // from_climate_state()), so this case intentionally does nothing
-      // to byte[8] anymore.
+      // ECO is handled separately in byte[7].
       preset_val = 0x0;
       break;
 
     case climate::CLIMATE_PRESET_BOOST:
-      // Confirmed via real Tuya capture as "Turbo Fan" - same bit, just
-      // using the standard preset name/mechanism rather than a custom one.
       preset_val = 0x4;
       break;
 
@@ -335,8 +314,7 @@ void RotensoFrameBuilder::encode_temperature(
   if (temp_int > 31)
     temp_int = 31;
 
-  // Byte[9]:
-  // 0x5X where X = (0xF + 16 - T) & 0x0F
+  // Encode whole temperature in byte[9].
   uint8_t encoded_low_nibble =
       static_cast<uint8_t>(
           (0xF + 16 - temp_int) & 0x0F);
@@ -344,10 +322,7 @@ void RotensoFrameBuilder::encode_temperature(
   frame_[9] =
       0x50 | encoded_low_nibble;
 
-  // Byte[11]:
-  // bit 0x02 = half degree.
-  // bit 0x08 belongs to horizontal vane movement and is handled separately
-  // by set_horizontal_vane_position(). Preserve it here.
+  // Byte[11] bit 0x02 enables half degrees.
   float decimal =
       temperature - static_cast<float>(temp_int);
 
