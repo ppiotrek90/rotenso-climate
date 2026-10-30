@@ -614,11 +614,30 @@ void RotensoClimate::parse_uart_response() {
     }
 
     if (start + 3 >= this->uart_rx_buffer_.size()) {
-      // Keep a possible frame start.
-      if (!this->uart_rx_buffer_.empty() && this->uart_rx_buffer_.back() == 0xBB) {
+      // Preserve any suffix that could be the beginning of the frame header.
+      // The header may be split across UART reads, e.g. BB | 01 00 | 04.
+      static const uint8_t header[] = {0xBB, 0x01, 0x00, 0x04};
+      size_t keep = 0;
+
+      for (size_t len = 1; len <= 3 && len <= this->uart_rx_buffer_.size(); len++) {
+        bool matches = true;
+
+        for (size_t i = 0; i < len; i++) {
+          if (this->uart_rx_buffer_[this->uart_rx_buffer_.size() - len + i] != header[i]) {
+            matches = false;
+            break;
+          }
+        }
+
+        if (matches) {
+          keep = len;
+        }
+      }
+
+      if (keep > 0) {
         this->uart_rx_buffer_.erase(
             this->uart_rx_buffer_.begin(),
-            this->uart_rx_buffer_.end() - 1);
+            this->uart_rx_buffer_.end() - keep);
       } else {
         this->uart_rx_buffer_.clear();
       }
